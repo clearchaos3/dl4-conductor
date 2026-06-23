@@ -12,6 +12,15 @@ final class AppModel: ObservableObject {
     @Published var bpm: Double = 132 { didSet { conductor?.setBPM(bpm) } }
     @Published var isConducting = false
     @Published var conductorLine = ""
+    @Published var currentBar = -1
+
+    /// Per-bar subdivision patterns, editable live.
+    @Published var sequenceA: [Subdivision] = [.dottedEighth, .dottedEighth, .quarterTriplet, .eighth] {
+        didSet { conductor?.sequenceA = sequenceA }
+    }
+    @Published var sequenceB: [Subdivision] = [.quarterTriplet, .eighth, .dottedEighth, .dottedEighth] {
+        didSet { conductor?.sequenceB = sequenceB }
+    }
 
     @Published var looperModeOn = false
     @Published var remoteOn = false
@@ -53,8 +62,13 @@ final class AppModel: ObservableObject {
         if remoteOn { stopRemote() }
         if looperModeOn { looper.exitLooperMode(); looperModeOn = false }
         let c = Conductor(midi: midi, bpm: bpm)
-        c.onBar = { [weak self] _, line in
-            DispatchQueue.main.async { self?.conductorLine = line }
+        c.sequenceA = sequenceA
+        c.sequenceB = sequenceB
+        c.onBar = { [weak self] bar, line in
+            DispatchQueue.main.async {
+                self?.conductorLine = line
+                self?.currentBar = bar
+            }
         }
         c.run()
         conductor = c
@@ -65,6 +79,17 @@ final class AppModel: ObservableObject {
         conductor?.stop(); conductor = nil
         isConducting = false
         conductorLine = ""
+        currentBar = -1
+    }
+
+    // Edit the patterns (clamped to 1...8 steps).
+    func addStep(toB: Bool) {
+        if toB { if sequenceB.count < 8 { sequenceB.append(.quarter) } }
+        else   { if sequenceA.count < 8 { sequenceA.append(.quarter) } }
+    }
+    func removeStep(fromB: Bool) {
+        if fromB { if sequenceB.count > 1 { sequenceB.removeLast() } }
+        else     { if sequenceA.count > 1 { sequenceA.removeLast() } }
     }
 
     // MARK: - Looper

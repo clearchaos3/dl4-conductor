@@ -52,6 +52,38 @@ struct ContentView: View {
                     .font(.system(size: 12, design: .monospaced)).foregroundStyle(.secondary)
                 Spacer()
             }
+
+            patternRow(label: model.pedalCount > 1 ? "Pattern — pedal A" : "Pattern (per bar)",
+                       steps: $model.sequenceA, isB: false)
+            if model.pedalCount > 1 {
+                patternRow(label: "Pattern — pedal B", steps: $model.sequenceB, isB: true)
+            }
+        }
+    }
+
+    private func patternRow(label: String, steps: Binding<[Subdivision]>, isB: Bool) -> some View {
+        let highlight = model.currentBar >= 0 ? model.currentBar % steps.wrappedValue.count : -1
+        return VStack(alignment: .leading, spacing: 6) {
+            Text(label).font(.system(size: 11, weight: .semibold)).foregroundStyle(.secondary)
+            HStack(spacing: 6) {
+                ForEach(Array(steps.wrappedValue.indices), id: \.self) { i in
+                    Menu(steps.wrappedValue[i].label) {
+                        ForEach(Subdivision.allCases, id: \.rawValue) { s in
+                            Button(s.label) { steps.wrappedValue[i] = s }
+                        }
+                    }
+                    .menuStyle(.borderlessButton)
+                    .menuIndicator(.hidden)
+                    .frame(width: 50)
+                    .padding(.vertical, 5)
+                    .background(RoundedRectangle(cornerRadius: 6)
+                        .fill(i == highlight ? accent.opacity(0.35) : Color.white.opacity(0.06)))
+                }
+                Button { model.removeStep(fromB: isB) } label: { Image(systemName: "minus") }
+                    .buttonStyle(.borderless).disabled(steps.wrappedValue.count <= 1)
+                Button { model.addStep(toB: isB) } label: { Image(systemName: "plus") }
+                    .buttonStyle(.borderless).disabled(steps.wrappedValue.count >= 8)
+            }
         }
     }
 
