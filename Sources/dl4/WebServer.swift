@@ -22,6 +22,8 @@ final class WebServer {
         listener.start(queue: .main)
     }
 
+    func stop() { listener.cancel() }
+
     private func handle(_ conn: NWConnection) {
         conn.start(queue: .main)
         conn.receive(minimumIncompleteLength: 1, maximumLength: 65536) { [weak self] data, _, _, _ in

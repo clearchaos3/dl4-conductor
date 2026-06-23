@@ -22,6 +22,9 @@ final class Conductor {
     /// LFO period in bars (one full up-and-back sweep).
     var lfoBars: Double = 4
 
+    /// Called on each new bar with (barNumber, humanReadableLine) — for UI display.
+    var onBar: ((Int, String) -> Void)?
+
     init(midi: DL4Midi, bpm: Double, beatsPerBar: Int = 4) {
         self.midi = midi
         self.beatsPerBar = beatsPerBar
@@ -41,13 +44,14 @@ final class Conductor {
                 lastBar = bar
                 let a = self.sequenceA[bar % self.sequenceA.count]
                 self.midi.cc(CC.subdivision, a.rawValue, to: 0)
+                var line = "bar \(bar): A=\(a.label)"
                 if self.midi.pedals.count > 1 {
                     let b = self.sequenceB[bar % self.sequenceB.count]
                     self.midi.cc(CC.subdivision, b.rawValue, to: 1)
-                    print("bar \(bar): A=\(a.label)  B=\(b.label)")
-                } else {
-                    print("bar \(bar): A=\(a.label)")
+                    line += "  B=\(b.label)"
                 }
+                print(line)
+                self.onBar?(bar, line)
             }
 
             // Continuous feedback LFO, updated every 16th note (every 6 pulses).
@@ -63,4 +67,7 @@ final class Conductor {
     }
 
     func stop() { clock.stop() }
+
+    /// Change tempo while running.
+    func setBPM(_ value: Double) { clock.bpm = value }
 }

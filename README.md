@@ -24,7 +24,20 @@ Two modes:
 - For `conduct`: DL4 **Global Settings ▸ Receive MIDI Clock** = `Auto` or `On` (Auto is the
   factory default, so this usually just works)
 
-## Usage
+## Install the app
+
+```sh
+./make-app.sh           # builds release + installs "DL4 Conductor.app" to /Applications
+```
+
+Then launch **DL4 Conductor** from Spotlight/Launchpad. The window shows detected pedals,
+a BPM slider + Start/Stop for the conductor, looper transport buttons, and a phone-remote
+toggle (prints the URL to open on your phone). It's ad-hoc signed for local use — not
+notarized — so it runs because you built it yourself.
+
+## CLI (handy for quick testing)
+
+The same binary is a CLI when given a subcommand:
 
 ```sh
 swift run dl4 list                 # show MIDI destinations and detected pedals
@@ -51,12 +64,16 @@ MIDI implementation, encoded in [`CC.swift`](Sources/dl4/CC.swift):
 
 | File | Role |
 |------|------|
+| `main.swift` | Entry point: CLI on a subcommand, else launches the GUI |
+| `DL4App.swift` / `ContentView.swift` / `AppModel.swift` | SwiftUI app |
+| `CLI.swift` | Terminal interface (`list` / `test` / `conduct` / `loop`) |
 | `DL4Midi.swift` | CoreMIDI: find DL4 endpoints, send CC / PC / clock |
 | `MidiClock.swift` | Low-jitter 24-PPQN clock on a dedicated thread |
 | `Conductor.swift` | Subdivision sequencing + feedback LFO |
 | `Looper.swift` | Semantic looper commands → CCs |
 | `WebServer.swift` + `LooperPage.swift` | Dependency-free phone remote |
 | `CC.swift` | The DL4 MkII MIDI map |
+| `make-app.sh` | Bundle the binary into `/Applications/DL4 Conductor.app` |
 
 ## Roadmap
 
