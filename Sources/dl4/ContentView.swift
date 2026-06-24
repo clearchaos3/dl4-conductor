@@ -47,9 +47,10 @@ struct ContentView: View {
 
     private var gridSection: some View {
         VStack(alignment: .leading, spacing: 10) {
-            HStack {
+            HStack(spacing: 16) {
                 Text("Grid Controller").font(.headline)
                 Spacer()
+                Toggle("LEDs", isOn: $model.ledEnabled).toggleStyle(.switch)
                 Toggle("Active", isOn: $model.gridEnabled).toggleStyle(.switch)
             }
             Text("MIDI in: \(model.midiSourceSummary)")

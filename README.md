@@ -86,8 +86,9 @@ MIDI implementation, encoded in [`CC.swift`](Sources/dl4/CC.swift):
 - [x] Live per-bar subdivision editor in the app
 - [x] App icon
 - [x] Grid controller: MIDI-learn routing of a controller into the loopers
+- [x] Grid LED feedback (Midi Fighter pads colored by state; app tracks state since the DL4
+      reports nothing back). Color velocities in `ControllerLED.swift` may need calibration on
+      real hardware.
 - [ ] Second DL4 (arriving) — verify the dotted-vs-triplet stereo interplay
-- [ ] Grid LED feedback (light a Midi Fighter's pads by loop state; app tracks state since
-      the DL4 reports nothing back)
 - [ ] Dynamics-responsive delay (audio envelope → CC3) — uses the Apollo for audio in
 - [ ] Optional shared-secret auth on the web remote (Swarm-style)

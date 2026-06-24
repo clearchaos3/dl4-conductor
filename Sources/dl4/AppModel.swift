@@ -30,11 +30,17 @@ final class AppModel: ObservableObject {
     @Published var remoteURL = ""
 
     // Grid controller (Midi Fighter etc.)
+    let led = ControllerLED()
     @Published var gridEnabled = true
-    @Published var bindings: [PadBinding] = [] { didSet { saveBindings() } }
+    @Published var ledEnabled = true { didSet { refreshLEDs() } }
+    @Published var bindings: [PadBinding] = [] { didSet { saveBindings(); refreshLEDs() } }
     @Published var learnTarget: LearnTarget?
     @Published var lastTrigger = ""
     @Published var midiSources: [String] = []
+
+    private var pedalStates = [PedalState(), PedalState()]
+    private var heldTriggers = Set<MidiTrigger>()
+    private var litTriggers = Set<MidiTrigger>()
 
     private var conductor: Conductor?
     private var server: WebServer?
@@ -63,8 +69,36 @@ final class AppModel: ObservableObject {
             return
         }
         guard gridEnabled else { return }
+        if pressed { heldTriggers.insert(t) } else { heldTriggers.remove(t) }
         for b in bindings where b.trigger == t {
             perform(b.action, pedal: b.pedal, pressed: pressed, velocity: velocity)
+            updateState(b.action, pedal: b.pedal, pressed: pressed)
+        }
+        refreshLEDs()
+    }
+
+    /// Track inferred state so LEDs can reflect it (DL4 sends nothing back).
+    private func updateState(_ a: PadAction, pedal: Int, pressed: Bool) {
+        guard pressed else { return }
+        let targets = pedal < 0 ? [0, 1] : [pedal]
+        for p in targets where pedalStates.indices.contains(p) {
+            switch a.kind {
+            case .looper:
+                switch a.looper {
+                case .record:  pedalStates[p].loop = .recording
+                case .overdub: pedalStates[p].loop = .overdub
+                case .play, .once: pedalStates[p].loop = .playing
+                case .stop:    pedalStates[p].loop = .stopped
+                case .reverse: pedalStates[p].reverse = true
+                case .forward: pedalStates[p].reverse = false
+                case .half:    pedalStates[p].halfSpeed = true
+                case .full:    pedalStates[p].halfSpeed = false
+                case .undo, .redo: break
+                }
+            case .delayModel:  pedalStates[p].delayModel = a.arg
+            case .subdivision: pedalStates[p].subdivision = a.arg
+            default: break
+            }
         }
     }
 
@@ -77,6 +111,52 @@ final class AppModel: ObservableObject {
     func rescanMidiSources() {
         midiIn.connectAllSources()
         midiSources = midiIn.sourceNames()
+        refreshLEDs()
+    }
+
+    // MARK: - LED feedback
+
+    func refreshLEDs() {
+        var current = Set<MidiTrigger>()
+        if ledEnabled {
+            for b in bindings where b.trigger.kind == .note {
+                current.insert(b.trigger)
+                led.setColor(note: b.trigger.data1, channel: b.trigger.channel,
+                             velocity: ledColor(for: b))
+            }
+        }
+        // Turn off pads that are no longer lit (unmapped, or LEDs disabled).
+        for old in litTriggers.subtracting(current) {
+            led.setColor(note: old.data1, channel: old.channel, velocity: LEDColor.off)
+        }
+        litTriggers = current
+    }
+
+    private func ledColor(for b: PadBinding) -> UInt8 {
+        let st = pedalStates[b.pedal < 0 ? 0 : min(b.pedal, 1)]
+        let held = heldTriggers.contains(b.trigger)
+        switch b.action.kind {
+        case .looper:
+            switch b.action.looper {
+            case .record:  return st.loop == .recording ? LEDColor.red : LEDColor.dimRed
+            case .overdub: return st.loop == .overdub ? LEDColor.amber : LEDColor.dim
+            case .play, .once: return st.loop == .playing ? LEDColor.green : LEDColor.dimGreen
+            case .stop:    return st.loop == .stopped ? LEDColor.green : LEDColor.dim
+            case .reverse: return st.reverse ? LEDColor.amber : LEDColor.dim
+            case .forward: return st.reverse ? LEDColor.dim : LEDColor.amber
+            case .half:    return st.halfSpeed ? LEDColor.blue : LEDColor.dim
+            case .full:    return st.halfSpeed ? LEDColor.dim : LEDColor.blue
+            case .undo, .redo: return LEDColor.dim
+            }
+        case .delayModel:  return st.delayModel == b.action.arg ? LEDColor.green : LEDColor.dimBlue
+        case .reverbModel: return LEDColor.dimBlue
+        case .subdivision: return st.subdivision == b.action.arg ? LEDColor.green : LEDColor.dimBlue
+        case .preset:      return LEDColor.purple
+        case .tap:         return LEDColor.amber
+        case .squeal, .kill, .fullWet: return held ? LEDColor.red : LEDColor.dimRed
+        case .drop, .build: return LEDColor.purple
+        case .feedbackVel, .mixVel: return LEDColor.blue
+        }
     }
 
     /// Execute a pad action. Momentary actions also fire on release.
