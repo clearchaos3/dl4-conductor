@@ -4,7 +4,10 @@ import SwiftUI
 /// Observable state bridging the SwiftUI view to the MIDI engine.
 final class AppModel: ObservableObject {
     let midi = DL4Midi()
+    let midiIn = MidiInput()
     private lazy var looper = LooperControl(midi: midi)
+
+    struct LearnTarget: Equatable { var pedal: Int; var function: LooperFunction }
 
     @Published var pedalNames: [String] = []
     @Published var status = ""
@@ -26,12 +29,71 @@ final class AppModel: ObservableObject {
     @Published var remoteOn = false
     @Published var remoteURL = ""
 
+    // Grid controller (Midi Fighter etc.)
+    @Published var gridEnabled = true
+    @Published var bindings: [PadBinding] = [] { didSet { saveBindings() } }
+    @Published var learnTarget: LearnTarget?
+    @Published var lastTrigger = ""
+    @Published var midiSources: [String] = []
+
     private var conductor: Conductor?
     private var server: WebServer?
+    private let bindingsKey = "gridBindings"
 
     var pedalCount: Int { pedalNames.count }
+    var midiSourceSummary: String { midiSources.isEmpty ? "no sources" : midiSources.joined(separator: ", ") }
 
-    init() { rescan() }
+    init() {
+        rescan()
+        loadBindings()
+        midiSources = midiIn.sourceNames()
+        midiIn.onTrigger = { [weak self] trigger in self?.handleTrigger(trigger) }
+    }
+
+    // MARK: - Grid controller
+
+    private func handleTrigger(_ t: MidiTrigger) {
+        lastTrigger = t.label
+        if let target = learnTarget {
+            // Assign: replace any existing binding for this cell or this trigger.
+            bindings.removeAll { ($0.pedal == target.pedal && $0.function == target.function) || $0.trigger == t }
+            bindings.append(PadBinding(trigger: t, pedal: target.pedal, function: target.function))
+            learnTarget = nil
+            return
+        }
+        guard gridEnabled, let b = bindings.first(where: { $0.trigger == t }) else { return }
+        looper.perform(b.function, on: b.pedal)
+    }
+
+    func arm(pedal: Int, function: LooperFunction) {
+        learnTarget = LearnTarget(pedal: pedal, function: function)
+    }
+    func cancelLearn() { learnTarget = nil }
+    func isArming(pedal: Int, function: LooperFunction) -> Bool {
+        learnTarget == LearnTarget(pedal: pedal, function: function)
+    }
+    func binding(pedal: Int, function: LooperFunction) -> PadBinding? {
+        bindings.first { $0.pedal == pedal && $0.function == function }
+    }
+    func clearBinding(pedal: Int, function: LooperFunction) {
+        bindings.removeAll { $0.pedal == pedal && $0.function == function }
+    }
+    func rescanMidiSources() {
+        midiIn.connectAllSources()
+        midiSources = midiIn.sourceNames()
+    }
+
+    private func saveBindings() {
+        if let data = try? JSONEncoder().encode(bindings) {
+            UserDefaults.standard.set(data, forKey: bindingsKey)
+        }
+    }
+    private func loadBindings() {
+        if let data = UserDefaults.standard.data(forKey: bindingsKey),
+           let decoded = try? JSONDecoder().decode([PadBinding].self, from: data) {
+            bindings = decoded
+        }
+    }
 
     func rescan() {
         pedalNames = midi.rescan()

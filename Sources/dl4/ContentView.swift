@@ -5,16 +5,80 @@ struct ContentView: View {
     private let accent = Color(red: 0.36, green: 0.75, blue: 0.45)
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 18) {
-            header
-            Divider()
-            conductorSection
-            Divider()
-            looperSection
+        ScrollView {
+            VStack(alignment: .leading, spacing: 18) {
+                header
+                Divider()
+                conductorSection
+                Divider()
+                gridSection
+                Divider()
+                looperSection
+            }
+            .padding(22)
+            .frame(width: 460)
         }
-        .padding(22)
-        .frame(width: 430)
+        .frame(width: 460, height: 820)
         .background(Color(red: 0.05, green: 0.06, blue: 0.055))
+    }
+
+    private let gridFunctions: [LooperFunction] =
+        [.record, .overdub, .play, .stop, .once, .undo, .reverse, .half, .full]
+
+    private var gridSection: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack {
+                Text("Grid Controller").font(.headline)
+                Spacer()
+                Toggle("Active", isOn: $model.gridEnabled).toggleStyle(.switch)
+            }
+            Text("MIDI in: \(model.midiSourceSummary)")
+                .font(.system(size: 11)).foregroundStyle(.secondary)
+            HStack {
+                Text(model.learnTarget == nil
+                     ? "Last: \(model.lastTrigger.isEmpty ? "—" : model.lastTrigger)"
+                     : "Press a pad on your controller…")
+                    .font(.system(size: 11, design: .monospaced))
+                    .foregroundStyle(model.learnTarget == nil ? .secondary : accent)
+                Spacer()
+                Button("Rescan MIDI") { model.rescanMidiSources() }
+                if model.learnTarget != nil { Button("Cancel") { model.cancelLearn() } }
+            }
+
+            HStack {
+                Text("").frame(width: 74, alignment: .leading)
+                Text("Pedal A").font(.system(size: 11, weight: .semibold)).frame(maxWidth: .infinity)
+                Text("Pedal B").font(.system(size: 11, weight: .semibold)).frame(maxWidth: .infinity)
+            }
+            ForEach(gridFunctions) { f in
+                HStack(spacing: 8) {
+                    Text(f.title).font(.system(size: 12)).frame(width: 74, alignment: .leading)
+                    mapCell(pedal: 0, function: f)
+                    mapCell(pedal: 1, function: f)
+                }
+            }
+            Text("Tip: turn on Looper mode below so the pedals show looping; map only the buttons you need.")
+                .font(.system(size: 10)).foregroundStyle(.secondary)
+        }
+    }
+
+    private func mapCell(pedal: Int, function: LooperFunction) -> some View {
+        let b = model.binding(pedal: pedal, function: function)
+        let arming = model.isArming(pedal: pedal, function: function)
+        return HStack(spacing: 4) {
+            Button(arming ? "…" : (b?.trigger.shortLabel ?? "Learn")) {
+                model.arm(pedal: pedal, function: function)
+            }
+            .font(.system(size: 11, design: .monospaced))
+            .frame(maxWidth: .infinity)
+            .tint(arming || b != nil ? accent : nil)
+            if b != nil {
+                Button { model.clearBinding(pedal: pedal, function: function) } label: {
+                    Image(systemName: "xmark.circle.fill")
+                }
+                .buttonStyle(.borderless).foregroundStyle(.secondary)
+            }
+        }
     }
 
     // MARK: Header

@@ -9,9 +9,14 @@ Two modes:
   quarter-triplet, …) and continuously sweeps feedback with a tempo-synced LFO — evolving
   rhythmic delays you can't get from a static patch. Plug in a second DL4 and it
   automatically plays a complementary subdivision against the first.
+- **Grid controller** — route a USB MIDI controller (e.g. a Midi Fighter 64) into the DL4
+  loopers. The Mac is the hub: it reads pad presses and translates each into a looper command
+  on a chosen pedal, so you can drive two DL4 loopers independently from one grid. Mappings
+  are **MIDI-learn** (tap a pad to assign) and persist across launches. Set up in the app's
+  Grid Controller section.
 - **`loop`** — a *phone looper remote*. Puts the pedal in Classic Looper mode and serves a
-  small web page on your LAN so you can conduct the looper (record / overdub / play / stop /
-  reverse / half-speed) from your phone.
+  small web page on your LAN so you can conduct the looper from your phone. (Note: for looping
+  while you play, the DL4's own footswitches are easier — this is mainly for desk use.)
 
 > The DL4 MkII's USB-C port is **MIDI + firmware only — not a USB audio interface**. Audio
 > still runs through the 1/4"/XLR jacks. This app only sends MIDI; it's the brain, the pedal
@@ -70,14 +75,19 @@ MIDI implementation, encoded in [`CC.swift`](Sources/dl4/CC.swift):
 | `DL4Midi.swift` | CoreMIDI: find DL4 endpoints, send CC / PC / clock |
 | `MidiClock.swift` | Low-jitter 24-PPQN clock on a dedicated thread |
 | `Conductor.swift` | Subdivision sequencing + feedback LFO |
-| `Looper.swift` | Semantic looper commands → CCs |
+| `Looper.swift` | Semantic looper commands → CCs; `LooperFunction` |
+| `MidiInput.swift` | CoreMIDI input: read a controller, learn/route pad presses |
 | `WebServer.swift` + `LooperPage.swift` | Dependency-free phone remote |
 | `CC.swift` | The DL4 MkII MIDI map |
 | `make-app.sh` | Bundle the binary into `/Applications/DL4 Conductor.app` |
 
 ## Roadmap
 
+- [x] Live per-bar subdivision editor in the app
+- [x] App icon
+- [x] Grid controller: MIDI-learn routing of a controller into the loopers
 - [ ] Second DL4 (arriving) — verify the dotted-vs-triplet stereo interplay
-- [ ] Live tempo / subdivision editing from the web UI
-- [ ] Dynamics-responsive delay (audio envelope → CC3) — needs an audio interface
+- [ ] Grid LED feedback (light a Midi Fighter's pads by loop state; app tracks state since
+      the DL4 reports nothing back)
+- [ ] Dynamics-responsive delay (audio envelope → CC3) — uses the Apollo for audio in
 - [ ] Optional shared-secret auth on the web remote (Swarm-style)

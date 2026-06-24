@@ -21,6 +21,12 @@ struct LooperControl {
     func halfSpeed() { midi.ccAll(CC.Looper.fullHalf, 127) }
     func fullSpeed() { midi.ccAll(CC.Looper.fullHalf, 0) }
 
+    /// Perform a looper function on one pedal (-1 = all pedals).
+    func perform(_ f: LooperFunction, on pedal: Int) {
+        let m = f.message
+        if pedal < 0 { midi.ccAll(m.cc, m.value) } else { midi.cc(m.cc, m.value, to: pedal) }
+    }
+
     /// Route a web-button action name to the matching command. Returns false if unknown.
     func command(_ name: String) -> Bool {
         switch name {
@@ -40,5 +46,44 @@ struct LooperControl {
         default:        return false
         }
         return true
+    }
+}
+
+/// A single looper action, used for controller bindings and the on-screen grid.
+enum LooperFunction: String, CaseIterable, Codable, Identifiable {
+    case record, overdub, play, stop, once, undo, redo, reverse, forward, half, full
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .record:  return "Record"
+        case .overdub: return "Overdub"
+        case .play:    return "Play"
+        case .stop:    return "Stop"
+        case .once:    return "Once"
+        case .undo:    return "Undo"
+        case .redo:    return "Redo"
+        case .reverse: return "Reverse"
+        case .forward: return "Forward"
+        case .half:    return "Half"
+        case .full:    return "Full"
+        }
+    }
+
+    /// The DL4 looper CC + value that performs this function.
+    var message: (cc: UInt8, value: UInt8) {
+        switch self {
+        case .record:  return (CC.Looper.recordOverdub, 127)
+        case .overdub: return (CC.Looper.recordOverdub, 0)
+        case .play:    return (CC.Looper.stopPlay, 127)
+        case .stop:    return (CC.Looper.stopPlay, 0)
+        case .once:    return (CC.Looper.playOnce, 127)
+        case .undo:    return (CC.Looper.undoRedo, 0)
+        case .redo:    return (CC.Looper.undoRedo, 127)
+        case .reverse: return (CC.Looper.forwardReverse, 127)
+        case .forward: return (CC.Looper.forwardReverse, 0)
+        case .half:    return (CC.Looper.fullHalf, 127)
+        case .full:    return (CC.Looper.fullHalf, 0)
+        }
     }
 }
