@@ -1,8 +1,31 @@
 import SwiftUI
 
+enum ActionCategory: String, CaseIterable, Identifiable {
+    case looper = "Looper", delay = "Delay Model", reverb = "Reverb Model",
+         subdiv = "Subdivision", preset = "Preset", fx = "FX"
+    var id: String { rawValue }
+}
+
+enum FXKind: String, CaseIterable, Identifiable {
+    case squeal = "Squeal (hold)", kill = "Kill (hold)", fullWet = "100% Wet (hold)",
+         tap = "Tap Tempo", drop = "Drop", build = "Build",
+         feedbackVel = "Feedback (vel)", mixVel = "Mix (vel)"
+    var id: String { rawValue }
+}
+
 struct ContentView: View {
     @EnvironmentObject var model: AppModel
     private let accent = Color(red: 0.36, green: 0.75, blue: 0.45)
+
+    // Grid action composer
+    @State private var cPedal = 0           // 0 = A, 1 = B, -1 = Both
+    @State private var cCategory: ActionCategory = .looper
+    @State private var cLooper: LooperFunction = .record
+    @State private var cModel = 0
+    @State private var cReverb = 0
+    @State private var cSubdiv: Subdivision = .dottedEighth
+    @State private var cPreset = 0
+    @State private var cFX: FXKind = .squeal
 
     var body: some View {
         ScrollView {
@@ -22,9 +45,6 @@ struct ContentView: View {
         .background(Color(red: 0.05, green: 0.06, blue: 0.055))
     }
 
-    private let gridFunctions: [LooperFunction] =
-        [.record, .overdub, .play, .stop, .once, .undo, .reverse, .half, .full]
-
     private var gridSection: some View {
         VStack(alignment: .leading, spacing: 10) {
             HStack {
@@ -34,49 +54,124 @@ struct ContentView: View {
             }
             Text("MIDI in: \(model.midiSourceSummary)")
                 .font(.system(size: 11)).foregroundStyle(.secondary)
-            HStack {
-                Text(model.learnTarget == nil
-                     ? "Last: \(model.lastTrigger.isEmpty ? "—" : model.lastTrigger)"
-                     : "Press a pad on your controller…")
-                    .font(.system(size: 11, design: .monospaced))
-                    .foregroundStyle(model.learnTarget == nil ? .secondary : accent)
-                Spacer()
-                Button("Rescan MIDI") { model.rescanMidiSources() }
-                if model.learnTarget != nil { Button("Cancel") { model.cancelLearn() } }
-            }
+
+            composer
+
+            Text(model.learnTarget == nil
+                 ? "Last in: \(model.lastTrigger.isEmpty ? "—" : model.lastTrigger)"
+                 : "Press the pad to assign…")
+                .font(.system(size: 11, design: .monospaced))
+                .foregroundStyle(model.learnTarget == nil ? .secondary : accent)
+
+            bindingsList
 
             HStack {
-                Text("").frame(width: 74, alignment: .leading)
-                Text("Pedal A").font(.system(size: 11, weight: .semibold)).frame(maxWidth: .infinity)
-                Text("Pedal B").font(.system(size: 11, weight: .semibold)).frame(maxWidth: .infinity)
+                Button("Rescan MIDI") { model.rescanMidiSources() }
+                if !model.bindings.isEmpty { Button("Clear all") { model.clearAllBindings() } }
             }
-            ForEach(gridFunctions) { f in
-                HStack(spacing: 8) {
-                    Text(f.title).font(.system(size: 12)).frame(width: 74, alignment: .leading)
-                    mapCell(pedal: 0, function: f)
-                    mapCell(pedal: 1, function: f)
-                }
-            }
-            Text("Tip: turn on Looper mode below so the pedals show looping; map only the buttons you need.")
+            .font(.system(size: 11))
+            Text("Turn on Looper mode below so looper pads show their state on the pedal.")
                 .font(.system(size: 10)).foregroundStyle(.secondary)
         }
     }
 
-    private func mapCell(pedal: Int, function: LooperFunction) -> some View {
-        let b = model.binding(pedal: pedal, function: function)
-        let arming = model.isArming(pedal: pedal, function: function)
-        return HStack(spacing: 4) {
-            Button(arming ? "…" : (b?.trigger.shortLabel ?? "Learn")) {
-                model.arm(pedal: pedal, function: function)
-            }
-            .font(.system(size: 11, design: .monospaced))
-            .frame(maxWidth: .infinity)
-            .tint(arming || b != nil ? accent : nil)
-            if b != nil {
-                Button { model.clearBinding(pedal: pedal, function: function) } label: {
-                    Image(systemName: "xmark.circle.fill")
+    private var composer: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack {
+                Picker("", selection: $cPedal) {
+                    Text("A").tag(0); Text("B").tag(1); Text("Both").tag(-1)
                 }
-                .buttonStyle(.borderless).foregroundStyle(.secondary)
+                .pickerStyle(.segmented).frame(width: 150).labelsHidden()
+                Picker("", selection: $cCategory) {
+                    ForEach(ActionCategory.allCases) { Text($0.rawValue).tag($0) }
+                }
+                .labelsHidden().frame(width: 140)
+                Spacer()
+            }
+            HStack {
+                detailPicker
+                Spacer()
+                Button(model.learnTarget == nil ? "Learn pad" : "Waiting…") {
+                    model.startLearn(pedal: cPedal, action: composedAction())
+                }
+                .disabled(model.learnTarget != nil)
+                if model.learnTarget != nil { Button("Cancel") { model.cancelLearn() } }
+            }
+        }
+        .padding(10)
+        .background(RoundedRectangle(cornerRadius: 8).fill(Color.white.opacity(0.04)))
+    }
+
+    @ViewBuilder private var detailPicker: some View {
+        switch cCategory {
+        case .looper:
+            Picker("", selection: $cLooper) {
+                ForEach(LooperFunction.allCases) { Text($0.title).tag($0) }
+            }.labelsHidden().frame(width: 180)
+        case .delay:
+            Picker("", selection: $cModel) {
+                ForEach(Array(DelayModel.names.enumerated()), id: \.offset) { Text($1).tag($0) }
+            }.labelsHidden().frame(width: 220)
+        case .reverb:
+            Picker("", selection: $cReverb) {
+                ForEach(Array(ReverbModel.names.enumerated()), id: \.offset) { Text($1).tag($0) }
+            }.labelsHidden().frame(width: 220)
+        case .subdiv:
+            Picker("", selection: $cSubdiv) {
+                ForEach(Subdivision.allCases, id: \.self) { Text($0.label).tag($0) }
+            }.labelsHidden().frame(width: 140)
+        case .preset:
+            Stepper("Preset · PC\(cPreset)", value: $cPreset, in: 0...127).frame(width: 200)
+        case .fx:
+            Picker("", selection: $cFX) {
+                ForEach(FXKind.allCases) { Text($0.rawValue).tag($0) }
+            }.labelsHidden().frame(width: 220)
+        }
+    }
+
+    private var bindingsList: some View {
+        Group {
+            if model.bindings.isEmpty {
+                Text("No pads mapped yet.").font(.system(size: 11)).foregroundStyle(.secondary)
+            } else {
+                ForEach(model.bindings) { b in
+                    HStack(spacing: 8) {
+                        Text(b.trigger.shortLabel)
+                            .font(.system(size: 11, design: .monospaced))
+                            .frame(width: 46, alignment: .leading).foregroundStyle(accent)
+                        Text(pedalLabel(b.pedal)).font(.system(size: 11))
+                            .frame(width: 40, alignment: .leading)
+                        Text(b.action.title).font(.system(size: 12))
+                        Spacer()
+                        Button { model.removeBinding(b.id) } label: {
+                            Image(systemName: "xmark.circle.fill")
+                        }
+                        .buttonStyle(.borderless).foregroundStyle(.secondary)
+                    }
+                }
+            }
+        }
+    }
+
+    private func pedalLabel(_ p: Int) -> String { p < 0 ? "Both" : (p == 0 ? "A" : "B") }
+
+    private func composedAction() -> PadAction {
+        switch cCategory {
+        case .looper: return PadAction(kind: .looper, looper: cLooper)
+        case .delay:  return PadAction(kind: .delayModel, arg: cModel)
+        case .reverb: return PadAction(kind: .reverbModel, arg: cReverb)
+        case .subdiv: return PadAction(kind: .subdivision, arg: Int(cSubdiv.rawValue))
+        case .preset: return PadAction(kind: .preset, arg: cPreset)
+        case .fx:
+            switch cFX {
+            case .squeal:      return PadAction(kind: .squeal)
+            case .kill:        return PadAction(kind: .kill)
+            case .fullWet:     return PadAction(kind: .fullWet)
+            case .tap:         return PadAction(kind: .tap)
+            case .drop:        return PadAction(kind: .drop)
+            case .build:       return PadAction(kind: .build)
+            case .feedbackVel: return PadAction(kind: .feedbackVel)
+            case .mixVel:      return PadAction(kind: .mixVel)
             }
         }
     }

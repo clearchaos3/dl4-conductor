@@ -1,7 +1,7 @@
 import Foundation
 import CoreMIDI
 
-/// A controller event we can bind to a looper action — a note or CC on a channel.
+/// A controller event we can bind to an action — a note or CC on a channel.
 struct MidiTrigger: Hashable, Codable {
     enum Kind: String, Codable { case note, cc }
     var kind: Kind
@@ -22,23 +22,23 @@ struct MidiTrigger: Hashable, Codable {
     }
 }
 
-/// A learned mapping: controller trigger → looper function on a given pedal (-1 = all).
+/// A learned mapping: controller trigger → action on a given pedal (-1 = all).
 struct PadBinding: Codable, Identifiable, Hashable {
     var id = UUID()
     var trigger: MidiTrigger
     var pedal: Int
-    var function: LooperFunction
+    var action: PadAction
 }
 
-/// Listens to every MIDI source and reports note/CC presses. Used to route a controller
-/// (e.g. a Midi Fighter 64) into DL4 looper commands.
+/// Listens to every MIDI source and reports presses/releases with velocity. Used to route a
+/// controller (e.g. a Midi Fighter 64) into DL4 actions.
 final class MidiInput {
     private var client = MIDIClientRef()
     private var port = MIDIPortRef()
     private var connected = Set<MIDIEndpointRef>()
 
-    /// Called on the main thread for each incoming press.
-    var onTrigger: ((MidiTrigger) -> Void)?
+    /// Called on the main thread for each event: (trigger, pressed, velocity).
+    var onTrigger: ((MidiTrigger, Bool, UInt8) -> Void)?
 
     init() {
         MIDIClientCreate("dl4-conductor-in" as CFString, nil, nil, &client)
@@ -78,15 +78,17 @@ final class MidiInput {
                     let hi = status & 0xF0
                     let ch = status & 0x0F
                     switch hi {
-                    case 0x90 where i + 2 < length:           // Note On
+                    case 0x90 where i + 2 < length:           // Note On (vel 0 = release)
                         let note = raw[i + 1], vel = raw[i + 2]
-                        if vel > 0 { emit(MidiTrigger(kind: .note, channel: ch, data1: note)) }
+                        emit(MidiTrigger(kind: .note, channel: ch, data1: note), pressed: vel > 0, velocity: vel)
                         i += 3
-                    case 0x80 where i + 2 < length:           // Note Off — ignore
+                    case 0x80 where i + 2 < length:           // Note Off
+                        let note = raw[i + 1]
+                        emit(MidiTrigger(kind: .note, channel: ch, data1: note), pressed: false, velocity: 0)
                         i += 3
-                    case 0xB0 where i + 2 < length:           // CC
+                    case 0xB0 where i + 2 < length:           // CC (>=64 press, <64 release)
                         let cc = raw[i + 1], val = raw[i + 2]
-                        if val >= 64 { emit(MidiTrigger(kind: .cc, channel: ch, data1: cc)) }
+                        emit(MidiTrigger(kind: .cc, channel: ch, data1: cc), pressed: val >= 64, velocity: val)
                         i += 3
                     case 0xC0, 0xD0:                          // Program Change / Channel Pressure
                         i += 2
@@ -99,8 +101,8 @@ final class MidiInput {
         }
     }
 
-    private func emit(_ t: MidiTrigger) {
-        DispatchQueue.main.async { [weak self] in self?.onTrigger?(t) }
+    private func emit(_ t: MidiTrigger, pressed: Bool, velocity: UInt8) {
+        DispatchQueue.main.async { [weak self] in self?.onTrigger?(t, pressed, velocity) }
     }
 }
 
