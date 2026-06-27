@@ -17,6 +17,8 @@ struct PadAction: Codable, Hashable {
         case build         // one-shot macro: ramp feedback + mix up
         case feedbackVel   // CC13 set from pad velocity
         case mixVel        // CC16 set from pad velocity
+        case reverseToggle // one pad flips reverse on/off (like the pedal's double-tap)
+        case halfToggle    // one pad flips half-speed on/off (like the pedal's tap)
     }
 
     var kind: Kind
@@ -41,6 +43,8 @@ struct PadAction: Codable, Hashable {
         case .build:       return "Build"
         case .feedbackVel: return "Feedback (vel)"
         case .mixVel:      return "Mix (vel)"
+        case .reverseToggle: return "Reverse (toggle)"
+        case .halfToggle:    return "Half (toggle)"
         }
     }
 }

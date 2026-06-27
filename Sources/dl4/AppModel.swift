@@ -172,6 +172,8 @@ final class AppModel: ObservableObject {
         case .squeal, .kill, .fullWet: return held ? LEDColor.red : LEDColor.dimRed
         case .drop, .build: return LEDColor.purple
         case .feedbackVel, .mixVel: return LEDColor.blue
+        case .reverseToggle: return st.reverse ? LEDColor.amber : LEDColor.dim
+        case .halfToggle:    return st.halfSpeed ? LEDColor.blue : LEDColor.dim
         }
     }
 
@@ -199,6 +201,18 @@ final class AppModel: ObservableObject {
         case .build:       if pressed { rampUp(pedal: pedal) }
         case .feedbackVel: if pressed { cc(CC.feedback, velocity) }
         case .mixVel:      if pressed { cc(CC.mix, velocity) }
+        case .reverseToggle: if pressed { toggle(\.reverse, cc: CC.Looper.forwardReverse, pedal: pedal) }
+        case .halfToggle:    if pressed { toggle(\.halfSpeed, cc: CC.Looper.fullHalf, pedal: pedal) }
+        }
+    }
+
+    /// Flip a per-pedal boolean state and send the matching CC (64-127 on, 0 off).
+    private func toggle(_ key: WritableKeyPath<PedalState, Bool>, cc: UInt8, pedal: Int) {
+        let targets = pedal < 0 ? Array(midi.pedals.indices) : [pedal]
+        for p in targets where pedalStates.indices.contains(p) {
+            let on = !pedalStates[p][keyPath: key]
+            midi.cc(cc, on ? 127 : 0, to: p)
+            pedalStates[p][keyPath: key] = on
         }
     }
 

@@ -7,7 +7,8 @@ enum ActionCategory: String, CaseIterable, Identifiable {
 }
 
 enum FXKind: String, CaseIterable, Identifiable {
-    case squeal = "Squeal (hold)", kill = "Kill (hold)", fullWet = "100% Wet (hold)",
+    case reverseToggle = "Reverse (toggle)", halfToggle = "Half (toggle)",
+         squeal = "Squeal (hold)", kill = "Kill (hold)", fullWet = "100% Wet (hold)",
          tap = "Tap Tempo", drop = "Drop", build = "Build",
          feedbackVel = "Feedback (vel)", mixVel = "Mix (vel)"
     var id: String { rawValue }
@@ -183,6 +184,8 @@ struct ContentView: View {
         case .preset: return PadAction(kind: .preset, arg: cPreset)
         case .fx:
             switch cFX {
+            case .reverseToggle: return PadAction(kind: .reverseToggle)
+            case .halfToggle:    return PadAction(kind: .halfToggle)
             case .squeal:      return PadAction(kind: .squeal)
             case .kill:        return PadAction(kind: .kill)
             case .fullWet:     return PadAction(kind: .fullWet)
