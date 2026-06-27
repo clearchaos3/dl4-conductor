@@ -89,6 +89,10 @@ MIDI implementation, encoded in [`CC.swift`](Sources/dl4/CC.swift):
 - [x] Grid LED feedback (Midi Fighter pads colored by state; app tracks state since the DL4
       reports nothing back). Color velocities in `ControllerLED.swift` may need calibration on
       real hardware.
-- [ ] Second DL4 (arriving) — verify the dotted-vs-triplet stereo interplay
+- [x] Up to 4 DL4s addressed individually (A–D) + Identify flash
+- [x] Reverse/Half toggle pads
+- [x] Quantized looper triggers (the DL4 looper ignores MIDI clock, so the app holds hits
+      and fires them on the next beat/bar; queued pads glow amber)
+- [ ] More DL4s (arriving) — verify 4-pedal addressing + Identify on real hardware
 - [ ] Dynamics-responsive delay (audio envelope → CC3) — uses the Apollo for audio in
 - [ ] Optional shared-secret auth on the web remote (Swarm-style)

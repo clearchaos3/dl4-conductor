@@ -75,6 +75,8 @@ struct ContentView: View {
                 .font(.system(size: 11, design: .monospaced))
                 .foregroundStyle(model.learnTarget == nil ? .secondary : accent)
 
+            quantizeRow
+
             bindingsList
 
             HStack {
@@ -166,6 +168,31 @@ struct ContentView: View {
                         .buttonStyle(.borderless).foregroundStyle(.secondary)
                     }
                 }
+            }
+        }
+    }
+
+    private var quantizeRow: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 12) {
+                Toggle("Quantize", isOn: $model.quantizeEnabled).toggleStyle(.switch)
+                if model.quantizeEnabled {
+                    Picker("", selection: $model.quantizeGrid) {
+                        ForEach(QuantizeGrid.allCases) { Text($0.rawValue).tag($0) }
+                    }
+                    .pickerStyle(.segmented).labelsHidden().frame(width: 120)
+                    Stepper("\(model.quantizeBeatsPerBar)/bar", value: $model.quantizeBeatsPerBar, in: 2...12)
+                        .frame(width: 110)
+                }
+                Spacer()
+                if model.pendingCount > 0 {
+                    Text("\(model.pendingCount) queued")
+                        .font(.system(size: 11)).foregroundStyle(accent)
+                }
+            }
+            if model.quantizeEnabled {
+                Text("Looper hits fire on the next \(model.quantizeGrid == .beat ? "beat" : "bar") (uses the BPM above). Queued pads glow amber.")
+                    .font(.system(size: 10)).foregroundStyle(.secondary)
             }
         }
     }

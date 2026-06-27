@@ -28,6 +28,14 @@ struct PadAction: Codable, Hashable {
     /// Momentary actions also fire on pad release (to revert).
     var isMomentary: Bool { kind == .squeal || kind == .kill || kind == .fullWet }
 
+    /// Actions that affect loop timing — these are the ones worth quantizing to the grid.
+    var isLooperTiming: Bool {
+        switch kind {
+        case .looper, .reverseToggle, .halfToggle, .drop: return true
+        default: return false
+        }
+    }
+
     var title: String {
         switch kind {
         case .looper:      return looper.title

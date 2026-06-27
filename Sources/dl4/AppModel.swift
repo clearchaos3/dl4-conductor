@@ -1,6 +1,12 @@
 import Foundation
 import SwiftUI
 
+/// Grid for quantized looper triggers — fire on the next beat or the next bar.
+enum QuantizeGrid: String, CaseIterable, Identifiable {
+    case beat = "Beat", bar = "Bar"
+    var id: String { rawValue }
+}
+
 /// Observable state bridging the SwiftUI view to the MIDI engine.
 final class AppModel: ObservableObject {
     let midi = DL4Midi()
@@ -12,7 +18,7 @@ final class AppModel: ObservableObject {
     @Published var pedalNames: [String] = []
     @Published var status = ""
 
-    @Published var bpm: Double = 132 { didSet { conductor?.setBPM(bpm) } }
+    @Published var bpm: Double = 132 { didSet { conductor?.setBPM(bpm); quantizeClock?.bpm = bpm } }
     @Published var isConducting = false
     @Published var conductorLine = ""
     @Published var currentBar = -1
@@ -41,6 +47,15 @@ final class AppModel: ObservableObject {
     private var pedalStates = Array(repeating: PedalState(), count: 4)
     private var heldTriggers = Set<MidiTrigger>()
     private var litTriggers = Set<MidiTrigger>()
+
+    // Quantize: hold looper triggers and fire them on the next grid boundary.
+    @Published var quantizeEnabled = false { didSet { quantizeEnabled ? startQuantizeClock() : stopQuantizeClock() } }
+    @Published var quantizeGrid: QuantizeGrid = .bar
+    @Published var quantizeBeatsPerBar = 4
+    @Published var pendingCount = 0
+    private var quantizeClock: MidiClock?
+    private var pendingActions: [(action: PadAction, pedal: Int)] = []
+    private var pendingTriggers = Set<MidiTrigger>()
 
     private var conductor: Conductor?
     private var server: WebServer?
@@ -87,8 +102,48 @@ final class AppModel: ObservableObject {
         guard gridEnabled else { return }
         if pressed { heldTriggers.insert(t) } else { heldTriggers.remove(t) }
         for b in bindings where b.trigger == t {
-            perform(b.action, pedal: b.pedal, pressed: pressed, velocity: velocity)
-            updateState(b.action, pedal: b.pedal, pressed: pressed)
+            if pressed, quantizeEnabled, b.action.isLooperTiming {
+                pendingActions.append((b.action, b.pedal))   // fire on the next grid boundary
+                pendingTriggers.insert(t)
+                pendingCount = pendingActions.count
+            } else {
+                perform(b.action, pedal: b.pedal, pressed: pressed, velocity: velocity)
+                updateState(b.action, pedal: b.pedal, pressed: pressed)
+            }
+        }
+        refreshLEDs()
+    }
+
+    // MARK: - Quantize clock
+
+    private func startQuantizeClock() {
+        let c = MidiClock(midi: midi, bpm: bpm, sendsClock: false)
+        c.onPulse = { [weak self] pulse in self?.quantizePulse(pulse) }
+        c.start()
+        quantizeClock = c
+    }
+
+    private func stopQuantizeClock() {
+        quantizeClock?.stop(); quantizeClock = nil
+        DispatchQueue.main.async { [weak self] in self?.flushPending() }  // don't strand queued hits
+    }
+
+    private func quantizePulse(_ pulse: Int) {
+        let unit = quantizeGrid == .beat ? 24 : 24 * max(quantizeBeatsPerBar, 1)
+        if pulse % unit == 0 {
+            DispatchQueue.main.async { [weak self] in self?.flushPending() }
+        }
+    }
+
+    private func flushPending() {
+        guard !pendingActions.isEmpty else { return }
+        let items = pendingActions
+        pendingActions.removeAll()
+        pendingTriggers.removeAll()
+        pendingCount = 0
+        for item in items {
+            perform(item.action, pedal: item.pedal, pressed: true, velocity: 127)
+            updateState(item.action, pedal: item.pedal, pressed: true)
         }
         refreshLEDs()
     }
@@ -149,6 +204,7 @@ final class AppModel: ObservableObject {
     }
 
     private func ledColor(for b: PadBinding) -> UInt8 {
+        if pendingTriggers.contains(b.trigger) { return LEDColor.amber }   // armed, waiting for the grid
         let st = pedalStates[b.pedal < 0 ? 0 : min(b.pedal, pedalStates.count - 1)]
         let held = heldTriggers.contains(b.trigger)
         switch b.action.kind {

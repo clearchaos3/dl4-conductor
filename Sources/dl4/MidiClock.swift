@@ -7,6 +7,8 @@ import Darwin
 final class MidiClock {
     private let midi: DL4Midi
     var bpm: Double
+    /// Whether to actually send MIDI Clock to the pedals (false = silent timing only).
+    private let sendsClock: Bool
     /// Called on the clock thread once per pulse, with a monotonically increasing count.
     var onPulse: ((Int) -> Void)?
 
@@ -14,16 +16,17 @@ final class MidiClock {
     private var running = false
     private var timebase = mach_timebase_info_data_t()
 
-    init(midi: DL4Midi, bpm: Double) {
+    init(midi: DL4Midi, bpm: Double, sendsClock: Bool = true) {
         self.midi = midi
         self.bpm = bpm
+        self.sendsClock = sendsClock
         mach_timebase_info(&timebase)
     }
 
     func start() {
         guard !running else { return }
         running = true
-        midi.clockStart()
+        if sendsClock { midi.clockStart() }
         let t = Thread { [weak self] in self?.run() }
         t.name = "dl4.midiclock"
         t.qualityOfService = .userInteractive
@@ -33,7 +36,7 @@ final class MidiClock {
 
     func stop() {
         running = false
-        midi.clockStop()
+        if sendsClock { midi.clockStop() }
     }
 
     /// Nanoseconds between pulses — a quarter note is 24 pulses.
@@ -47,7 +50,7 @@ final class MidiClock {
         var pulse = 0
         var deadline = mach_absolute_time()
         while running {
-            midi.clockTick()
+            if sendsClock { midi.clockTick() }
             onPulse?(pulse)
             pulse += 1
             deadline &+= nanosToMach(pulseNanos)   // re-read bpm each loop, so tempo can change live
