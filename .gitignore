@@ -2,3 +2,7 @@
 .swiftpm/
 .DS_Store
 *.xcodeproj
+
+# Local-only photo diagram (third-party product images — not for public repo)
+docs/assets/
+docs/signal-chain-photos.png
