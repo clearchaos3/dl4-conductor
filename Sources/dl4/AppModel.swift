@@ -38,7 +38,7 @@ final class AppModel: ObservableObject {
     @Published var lastTrigger = ""
     @Published var midiSources: [String] = []
 
-    private var pedalStates = [PedalState(), PedalState()]
+    private var pedalStates = Array(repeating: PedalState(), count: 4)
     private var heldTriggers = Set<MidiTrigger>()
     private var litTriggers = Set<MidiTrigger>()
 
@@ -47,7 +47,23 @@ final class AppModel: ObservableObject {
     private let bindingsKey = "gridBindings"
 
     var pedalCount: Int { pedalNames.count }
+    /// How many pedals the grid lets you address individually (A…D), at least 2 so you can
+    /// pre-map before the others arrive, capped at 4.
+    var addressablePedals: Int { min(max(pedalCount, 2), 4) }
     var midiSourceSummary: String { midiSources.isEmpty ? "no sources" : midiSources.joined(separator: ", ") }
+
+    /// Flash one pedal's Mix knob ring so you can tell identical DL4s apart.
+    func identify(pedal: Int) {
+        guard midi.pedals.indices.contains(pedal) else { return }
+        let midi = self.midi
+        DispatchQueue.global().async {
+            for _ in 0..<2 {
+                for v in stride(from: 0, through: 127, by: 4) { midi.cc(CC.mix, UInt8(v), to: pedal); usleep(6_000) }
+                for v in stride(from: 127, through: 0, by: -4) { midi.cc(CC.mix, UInt8(v), to: pedal); usleep(6_000) }
+            }
+            midi.cc(CC.mix, 64, to: pedal)
+        }
+    }
 
     init() {
         rescan()
@@ -80,7 +96,7 @@ final class AppModel: ObservableObject {
     /// Track inferred state so LEDs can reflect it (DL4 sends nothing back).
     private func updateState(_ a: PadAction, pedal: Int, pressed: Bool) {
         guard pressed else { return }
-        let targets = pedal < 0 ? [0, 1] : [pedal]
+        let targets = pedal < 0 ? Array(pedalStates.indices) : [pedal]
         for p in targets where pedalStates.indices.contains(p) {
             switch a.kind {
             case .looper:
@@ -133,7 +149,7 @@ final class AppModel: ObservableObject {
     }
 
     private func ledColor(for b: PadBinding) -> UInt8 {
-        let st = pedalStates[b.pedal < 0 ? 0 : min(b.pedal, 1)]
+        let st = pedalStates[b.pedal < 0 ? 0 : min(b.pedal, pedalStates.count - 1)]
         let held = heldTriggers.contains(b.trigger)
         switch b.action.kind {
         case .looper:

@@ -56,6 +56,16 @@ struct ContentView: View {
             Text("MIDI in: \(model.midiSourceSummary)")
                 .font(.system(size: 11)).foregroundStyle(.secondary)
 
+            if model.pedalCount > 0 {
+                HStack(spacing: 6) {
+                    Text("Identify:").font(.system(size: 11)).foregroundStyle(.secondary)
+                    ForEach(0..<model.pedalCount, id: \.self) { i in
+                        Button("⚡ \(pedalLetter(i))") { model.identify(pedal: i) }
+                            .font(.system(size: 11))
+                    }
+                }
+            }
+
             composer
 
             Text(model.learnTarget == nil
@@ -80,9 +90,14 @@ struct ContentView: View {
         VStack(alignment: .leading, spacing: 8) {
             HStack {
                 Picker("", selection: $cPedal) {
-                    Text("A").tag(0); Text("B").tag(1); Text("Both").tag(-1)
+                    ForEach(0..<model.addressablePedals, id: \.self) { i in
+                        Text(pedalLetter(i)).tag(i)
+                    }
+                    Text("All").tag(-1)
                 }
-                .pickerStyle(.segmented).frame(width: 150).labelsHidden()
+                .pickerStyle(.segmented)
+                .frame(width: min(CGFloat((model.addressablePedals + 1) * 44), 240))
+                .labelsHidden()
                 Picker("", selection: $cCategory) {
                     ForEach(ActionCategory.allCases) { Text($0.rawValue).tag($0) }
                 }
@@ -154,7 +169,10 @@ struct ContentView: View {
         }
     }
 
-    private func pedalLabel(_ p: Int) -> String { p < 0 ? "Both" : (p == 0 ? "A" : "B") }
+    private func pedalLabel(_ p: Int) -> String { p < 0 ? "All" : pedalLetter(p) }
+    private func pedalLetter(_ i: Int) -> String {
+        i < 0 ? "All" : String(UnicodeScalar(65 + min(max(i, 0), 25))!)
+    }
 
     private func composedAction() -> PadAction {
         switch cCategory {
