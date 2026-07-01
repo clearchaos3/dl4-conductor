@@ -93,6 +93,9 @@ MIDI implementation, encoded in [`CC.swift`](Sources/dl4/CC.swift):
 - [x] Reverse/Half toggle pads
 - [x] Quantized looper triggers (the DL4 looper ignores MIDI clock, so the app holds hits
       and fires them on the next beat/bar; queued pads glow amber)
+- [x] Sync to Ableton's MIDI clock (via an IAC bus) + retrigger re-sync: since the DL4
+      looper can't clock-sync, the app re-fires each active loop from bar 1 every N bars on
+      the incoming clock, so 4 free-running loops stay locked to the beat
 - [ ] More DL4s (arriving) — verify 4-pedal addressing + Identify on real hardware
 - [ ] Dynamics-responsive delay (audio envelope → CC3) — uses the Apollo for audio in
 - [ ] Optional shared-secret auth on the web remote (Swarm-style)

@@ -40,6 +40,10 @@ final class MidiInput {
     /// Called on the main thread for each event: (trigger, pressed, velocity).
     var onTrigger: ((MidiTrigger, Bool, UInt8) -> Void)?
 
+    /// System-realtime clock messages (e.g. from Ableton), delivered on the main thread.
+    enum ClockMsg { case tick, start, stop, cont }
+    var onClock: ((ClockMsg) -> Void)?
+
     init() {
         MIDIClientCreate("dl4-conductor-in" as CFString, nil, nil, &client)
         let refCon = Unmanaged.passUnretained(self).toOpaque()
@@ -75,6 +79,16 @@ final class MidiInput {
                 while i < length {
                     let status = raw[i]
                     guard status & 0x80 != 0 else { i += 1; continue }
+                    if status >= 0xF8 {            // system realtime — single byte, may interleave
+                        switch status {
+                        case 0xF8: emitClock(.tick)
+                        case 0xFA: emitClock(.start)
+                        case 0xFB: emitClock(.cont)
+                        case 0xFC: emitClock(.stop)
+                        default: break
+                        }
+                        i += 1; continue
+                    }
                     let hi = status & 0xF0
                     let ch = status & 0x0F
                     switch hi {
@@ -103,6 +117,9 @@ final class MidiInput {
 
     private func emit(_ t: MidiTrigger, pressed: Bool, velocity: UInt8) {
         DispatchQueue.main.async { [weak self] in self?.onTrigger?(t, pressed, velocity) }
+    }
+    private func emitClock(_ m: ClockMsg) {
+        DispatchQueue.main.async { [weak self] in self?.onClock?(m) }
     }
 }
 

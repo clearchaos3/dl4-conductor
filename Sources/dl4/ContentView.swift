@@ -191,7 +191,37 @@ struct ContentView: View {
                 }
             }
             if model.quantizeEnabled {
-                Text("Looper hits fire on the next \(model.quantizeGrid == .beat ? "beat" : "bar") (uses the BPM above). Queued pads glow amber.")
+                Text("Looper hits fire on the next \(model.quantizeGrid == .beat ? "beat" : "bar"). Queued pads glow amber.")
+                    .font(.system(size: 10)).foregroundStyle(.secondary)
+            }
+
+            Divider().padding(.vertical, 2)
+
+            HStack(spacing: 12) {
+                Toggle("Sync to Ableton clock", isOn: $model.syncExternal).toggleStyle(.switch)
+                Spacer()
+                Text(model.clockStatus)
+                    .font(.system(size: 11, design: .monospaced))
+                    .foregroundStyle(model.clockStatus.contains("▶") ? accent : .secondary)
+            }
+            if model.syncExternal {
+                Text("Set up an IAC bus (Audio MIDI Setup) and enable Ableton's Sync output to it. The app follows that clock.")
+                    .font(.system(size: 10)).foregroundStyle(.secondary)
+            }
+
+            HStack(spacing: 12) {
+                Toggle("Re-sync loops (retrigger)", isOn: $model.retriggerEnabled).toggleStyle(.switch)
+                if model.retriggerEnabled {
+                    Stepper("\(model.loopBars) bars", value: $model.loopBars, in: 1...32).frame(width: 110)
+                }
+                Spacer()
+                if !model.activePedals.isEmpty {
+                    Text("loops: " + model.activePedals.sorted().map { pedalLetter($0) }.joined(separator: " "))
+                        .font(.system(size: 11)).foregroundStyle(accent)
+                }
+            }
+            if model.retriggerEnabled {
+                Text("Each active loop re-fires from bar 1 every \(model.loopBars) bars on the clock, so drift never builds up. Record loops to \(model.loopBars)-bar lengths.")
                     .font(.system(size: 10)).foregroundStyle(.secondary)
             }
         }

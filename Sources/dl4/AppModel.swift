@@ -18,7 +18,7 @@ final class AppModel: ObservableObject {
     @Published var pedalNames: [String] = []
     @Published var status = ""
 
-    @Published var bpm: Double = 132 { didSet { conductor?.setBPM(bpm); quantizeClock?.bpm = bpm } }
+    @Published var bpm: Double = 132 { didSet { conductor?.setBPM(bpm); quantizeClock?.bpm = bpm; if !syncExternal { reconfigureClock() } } }
     @Published var isConducting = false
     @Published var conductorLine = ""
     @Published var currentBar = -1
@@ -49,11 +49,18 @@ final class AppModel: ObservableObject {
     private var litTriggers = Set<MidiTrigger>()
 
     // Quantize: hold looper triggers and fire them on the next grid boundary.
-    @Published var quantizeEnabled = false { didSet { quantizeEnabled ? startQuantizeClock() : stopQuantizeClock() } }
+    @Published var quantizeEnabled = false { didSet { reconfigureClock() } }
     @Published var quantizeGrid: QuantizeGrid = .bar
     @Published var quantizeBeatsPerBar = 4
     @Published var pendingCount = 0
+    // Sync + retrigger
+    @Published var syncExternal = false { didSet { reconfigureClock() } }   // follow Ableton's MIDI clock
+    @Published var retriggerEnabled = false { didSet { reconfigureClock() } } // re-fire loops each cycle
+    @Published var loopBars = 4
+    @Published var activePedals: Set<Int> = []                              // loops being kept in sync
+    @Published var clockStatus = "off"
     private var quantizeClock: MidiClock?
+    private var externalPulse = 0
     private var pendingActions: [(action: PadAction, pedal: Int)] = []
     private var pendingTriggers = Set<MidiTrigger>()
 
@@ -87,6 +94,7 @@ final class AppModel: ObservableObject {
         midiIn.onTrigger = { [weak self] t, pressed, vel in
             self?.handleTrigger(t, pressed: pressed, velocity: vel)
         }
+        midiIn.onClock = { [weak self] m in self?.handleClock(m) }
     }
 
     // MARK: - Grid controller
@@ -116,22 +124,51 @@ final class AppModel: ObservableObject {
 
     // MARK: - Quantize clock
 
-    private func startQuantizeClock() {
-        let c = MidiClock(midi: midi, bpm: bpm, sendsClock: false)
-        c.onPulse = { [weak self] pulse in self?.quantizePulse(pulse) }
-        c.start()
-        quantizeClock = c
-    }
-
-    private func stopQuantizeClock() {
-        quantizeClock?.stop(); quantizeClock = nil
-        DispatchQueue.main.async { [weak self] in self?.flushPending() }  // don't strand queued hits
-    }
-
-    private func quantizePulse(_ pulse: Int) {
-        let unit = quantizeGrid == .beat ? 24 : 24 * max(quantizeBeatsPerBar, 1)
-        if pulse % unit == 0 {
+    /// Decide which clock (external Ableton vs internal) drives the grid, and reflect status.
+    private func reconfigureClock() {
+        let need = quantizeEnabled || retriggerEnabled
+        if syncExternal {
+            quantizeClock?.stop(); quantizeClock = nil
+            clockStatus = need ? "waiting for Ableton clock…" : "external (idle)"
+        } else if need {
+            if quantizeClock == nil {
+                let c = MidiClock(midi: midi, bpm: bpm, sendsClock: false)
+                c.onPulse = { [weak self] pulse in DispatchQueue.main.async { self?.gridPulse(pulse) } }
+                c.start(); quantizeClock = c
+            } else { quantizeClock?.bpm = bpm }
+            clockStatus = "internal \(Int(bpm)) BPM"
+        } else {
+            quantizeClock?.stop(); quantizeClock = nil
             DispatchQueue.main.async { [weak self] in self?.flushPending() }
+            clockStatus = "off"
+        }
+    }
+
+    /// Incoming Ableton clock (main thread).
+    private func handleClock(_ m: MidiInput.ClockMsg) {
+        switch m {
+        case .start, .cont:
+            externalPulse = 0
+            if syncExternal { clockStatus = "Ableton clock ▶" }
+        case .stop:
+            if syncExternal { clockStatus = "Ableton clock ■" }
+        case .tick:
+            guard syncExternal else { return }
+            gridPulse(externalPulse)
+            externalPulse += 1
+        }
+    }
+
+    /// One 24-PPQN pulse of whichever clock is active: flush quantized hits + retrigger loops.
+    private func gridPulse(_ pulse: Int) {
+        let ppb = 24 * max(quantizeBeatsPerBar, 1)
+        if quantizeEnabled {
+            let unit = quantizeGrid == .beat ? 24 : ppb
+            if pulse % unit == 0 { flushPending() }
+        }
+        if retriggerEnabled, !activePedals.isEmpty {
+            let cycle = max(loopBars, 1) * ppb
+            if pulse % cycle == 0 { for p in activePedals { looper.perform(.once, on: p) } }  // re-fire from bar 1
         }
     }
 
@@ -156,10 +193,10 @@ final class AppModel: ObservableObject {
             switch a.kind {
             case .looper:
                 switch a.looper {
-                case .record:  pedalStates[p].loop = .recording
-                case .overdub: pedalStates[p].loop = .overdub
-                case .play, .once: pedalStates[p].loop = .playing
-                case .stop:    pedalStates[p].loop = .stopped
+                case .record:  pedalStates[p].loop = .recording; activePedals.insert(p)
+                case .overdub: pedalStates[p].loop = .overdub;   activePedals.insert(p)
+                case .play, .once: pedalStates[p].loop = .playing; activePedals.insert(p)
+                case .stop:    pedalStates[p].loop = .stopped;    activePedals.remove(p)
                 case .reverse: pedalStates[p].reverse = true
                 case .forward: pedalStates[p].reverse = false
                 case .half:    pedalStates[p].halfSpeed = true
