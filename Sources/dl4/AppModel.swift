@@ -76,19 +76,21 @@ final class AppModel: ObservableObject {
     var addressablePedals: Int { min(max(pedalCount, 2), 4) }
     var midiSourceSummary: String { midiSources.isEmpty ? "no sources" : midiSources.joined(separator: ", ") }
 
-    /// Make one pedal's TAP footswitch LED flutter (fast MIDI clock to just that
-    /// pedal) so you can tell identical DL4s apart. The MkII's knobs have no LED
-    /// rings — the TAP light is the only always-visible MIDI-reachable indicator.
-    /// Side effect: clock sets that pedal's delay tempo; re-tap if you had one.
+    /// Turn one pedal's TAP footswitch LED BLUE for a few seconds so you can tell
+    /// identical DL4s apart. Per the manual, the TAP LED goes blue while synced to
+    /// MIDI Clock — which requires a clock START; bare ticks are ignored.
+    /// Side effect: clock sync nudges that pedal's delay tempo; re-tap if needed.
     func identify(pedal: Int) {
         guard midi.pedals.indices.contains(pedal) else { return }
         let midi = self.midi
         DispatchQueue.global().async {
-            let interval = 60.0 / 250.0 / 24.0   // 250 BPM clock ticks
-            for _ in 0..<Int(2.5 / interval) {
+            midi.sendRaw([0xFA], to: pedal)          // start → LED blue
+            let interval = 60.0 / 120.0 / 24.0
+            for _ in 0..<Int(4.0 / interval) {
                 midi.sendRaw([0xF8], to: pedal)
                 usleep(UInt32(interval * 1_000_000))
             }
+            midi.sendRaw([0xFC], to: pedal)          // stop → LED back to red
         }
     }
 

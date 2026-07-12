@@ -15,7 +15,13 @@ enum CLI {
             if pedals.isEmpty {
                 print("  none — is the USB-C cable connected and the pedal powered?")
             } else {
-                for (i, n) in pedals.enumerated() { print("  pedal[\(i)] -> \(n)") }
+                let letters = Conductor.pedalLetters
+                let saved = DL4Midi.savedOrder()
+                for (i, n) in pedals.enumerated() {
+                    let uid = midi.pedalUIDs[i]
+                    let label = saved.contains(uid) ? " (\(letters[min(i, letters.count - 1)]))" : ""
+                    print("  pedal[\(i)]\(label) -> \(n)  uid=\(uid)")
+                }
             }
 
         case "test":
@@ -23,8 +29,9 @@ enum CLI {
             // The MkII has no LED rings on its knobs — the visible MIDI-reachable
             // indicator is the TAP footswitch LED, which blinks at the current
             // tempo and follows MIDI clock.
-            print("Watch the TAP footswitch LED on \(midi.pedals.count) pedal(s):")
-            print("  ~4s FAST flutter (240 BPM) then ~4s slow pulse (75 BPM), twice.")
+            print("Watch the TAP footswitch LEDs on \(midi.pedals.count) pedal(s):")
+            print("  they turn BLUE (clock sync), flutter fast, pulse slow, then go red again.")
+            midi.clockStart()   // required — pedals ignore bare ticks without a start
             for _ in 0..<2 {
                 for (bpm, secs) in [(240.0, 4.0), (75.0, 4.0)] {
                     let interval = 60.0 / bpm / 24.0
@@ -34,6 +41,7 @@ enum CLI {
                     }
                 }
             }
+            midi.clockStop()
             print("Done. (MIDI clock nudges the pedals' delay tempo — re-tap if you had one set.)")
 
         case "blink":
@@ -51,6 +59,37 @@ enum CLI {
                 usleep(350_000)
             }
             print("Done. (Each blip was stopped and undone — no loop left behind.)")
+
+        case "identify":
+            // Sequential roll call: exactly one pedal's TAP LED races at a time
+            // (fast clock to that pedal only), then a slow burst calms it back
+            // down before the next pedal starts. Delay-mode friendly.
+            guard !midi.pedals.isEmpty else { print("No DL4 found. Run `dl4 list`."); exit(1) }
+            // Per the manual: the TAP LED turns BLUE only once the pedal receives
+            // a MIDI Clock START and syncs; bare ticks are ignored. So identify =
+            // start + clock to ONE pedal (its TAP goes blue), then stop (back to red).
+            print("Identify: the target pedal's TAP LED turns BLUE while it's synced.")
+            func syncBlue(pedal: Int, seconds: Double, bpm: Double = 120) {
+                midi.sendRaw([0xFA], to: pedal)          // clock start → LED goes blue
+                let interval = 60.0 / bpm / 24.0
+                for _ in 0..<Int(seconds / interval) {
+                    midi.sendRaw([0xF8], to: pedal)
+                    usleep(UInt32(interval * 1_000_000))
+                }
+                midi.sendRaw([0xFC], to: pedal)          // clock stop → back to red
+            }
+            if let idxStr = argValue("--pedal"), let idx = Int(idxStr) {
+                guard midi.pedals.indices.contains(idx) else { print("No pedal[\(idx)]."); exit(1) }
+                print("  pedal[\(idx)] BLUE for 20s…")
+                syncBlue(pedal: idx, seconds: 20)
+            } else {
+                for i in midi.pedals.indices {
+                    print("  pedal[\(i)] BLUE now…")
+                    syncBlue(pedal: i, seconds: 6)
+                    sleep(2)
+                }
+            }
+            print("\nDone. (Clock sync nudges tempo — re-tap to taste.)")
 
         case "conduct":
             guard !midi.pedals.isEmpty else { print("No DL4 found. Run `dl4 list`."); exit(1) }

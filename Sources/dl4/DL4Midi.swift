@@ -8,8 +8,17 @@ final class DL4Midi {
     private var client = MIDIClientRef()
     private var outPort = MIDIPortRef()
 
-    /// Discovered DL4 endpoints, in CoreMIDI order.
+    /// Discovered DL4 endpoints, ordered by the saved pedal-order file (physical
+    /// A…D layout) when present, falling back to CoreMIDI order for unknown uids.
     private(set) var pedals: [MIDIEndpointRef] = []
+    /// CoreMIDI unique IDs, index-aligned with `pedals`. UIDs persist per device
+    /// across replugs and reboots — that's what keeps the A…D labels stable.
+    private(set) var pedalUIDs: [Int32] = []
+
+    /// Physical-order file shared by the CLI and the app (their UserDefaults
+    /// domains differ, so a plain file it is).
+    static let orderURL = FileManager.default.homeDirectoryForCurrentUser
+        .appendingPathComponent("Library/Application Support/dl4-conductor/pedal-order.json")
 
     init() {
         MIDIClientCreate("dl4-conductor" as CFString, nil, nil, &client)
@@ -17,19 +26,38 @@ final class DL4Midi {
         rescan()
     }
 
+    static func savedOrder() -> [Int32] {
+        (try? JSONDecoder().decode([Int32].self, from: Data(contentsOf: orderURL))) ?? []
+    }
+
+    static func savePedalOrder(_ uids: [Int32]) {
+        try? FileManager.default.createDirectory(
+            at: orderURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try? JSONEncoder().encode(uids).write(to: orderURL)
+    }
+
     /// (Re)discover destinations whose name mentions "DL4". Returns their names.
     @discardableResult
     func rescan() -> [String] {
-        var found: [(name: String, ref: MIDIEndpointRef)] = []
+        var found: [(name: String, ref: MIDIEndpointRef, uid: Int32)] = []
         for i in 0..<MIDIGetNumberOfDestinations() {
             let ep = MIDIGetDestination(i)
             let name = Self.displayName(ep)
             if name.uppercased().contains("DL4") {
-                found.append((name, ep))
+                var uid: Int32 = 0
+                MIDIObjectGetIntegerProperty(ep, kMIDIPropertyUniqueID, &uid)
+                found.append((name, ep, uid))
             }
         }
-        pedals = found.map(\.ref)
-        return found.map(\.name)
+        let order = Self.savedOrder()
+        let sorted = found.enumerated().sorted { a, b in
+            let ia = order.firstIndex(of: a.element.uid) ?? Int.max
+            let ib = order.firstIndex(of: b.element.uid) ?? Int.max
+            return ia != ib ? ia < ib : a.offset < b.offset
+        }.map(\.element)
+        pedals = sorted.map(\.ref)
+        pedalUIDs = sorted.map(\.uid)
+        return sorted.map(\.name)
     }
 
     /// Every MIDI destination name (for `list` / troubleshooting).
