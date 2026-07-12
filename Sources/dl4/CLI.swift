@@ -20,13 +20,37 @@ enum CLI {
 
         case "test":
             guard !midi.pedals.isEmpty else { print("No DL4 found. Run `dl4 list`."); exit(1) }
-            print("Sweeping the Mix knob (CC16) on \(midi.pedals.count) pedal(s)… watch the knob ring light.")
-            for v in stride(from: 0, through: 127, by: 1) {
-                midi.ccAll(CC.mix, UInt8(v))
-                usleep(15_000)
+            // The MkII has no LED rings on its knobs — the visible MIDI-reachable
+            // indicator is the TAP footswitch LED, which blinks at the current
+            // tempo and follows MIDI clock.
+            print("Watch the TAP footswitch LED on \(midi.pedals.count) pedal(s):")
+            print("  ~4s FAST flutter (240 BPM) then ~4s slow pulse (75 BPM), twice.")
+            for _ in 0..<2 {
+                for (bpm, secs) in [(240.0, 4.0), (75.0, 4.0)] {
+                    let interval = 60.0 / bpm / 24.0
+                    for _ in 0..<Int(secs / interval) {
+                        midi.clockTick()
+                        usleep(UInt32(interval * 1_000_000))
+                    }
+                }
             }
-            midi.ccAll(CC.mix, 64)
-            print("Done.")
+            print("Done. (MIDI clock nudges the pedals' delay tempo — re-tap if you had one set.)")
+
+        case "blink":
+            // Visibility test for pedals sitting in Looper mode (where the TAP LED
+            // doesn't track MIDI clock): pulse Record red 3x, undoing each blip.
+            guard !midi.pedals.isEmpty else { print("No DL4 found. Run `dl4 list`."); exit(1) }
+            let looper = LooperControl(midi: midi)
+            print("Blinking the looper RECORD LED 3x on \(midi.pedals.count) pedal(s)… watch for red.")
+            for _ in 0..<3 {
+                looper.record()
+                usleep(500_000)
+                looper.stop()
+                usleep(150_000)
+                looper.undo()
+                usleep(350_000)
+            }
+            print("Done. (Each blip was stopped and undone — no loop left behind.)")
 
         case "conduct":
             guard !midi.pedals.isEmpty else { print("No DL4 found. Run `dl4 list`."); exit(1) }
@@ -70,7 +94,8 @@ enum CLI {
         USAGE:
           dl4                     Launch the app (also happens when double-clicked)
           dl4 list                Show MIDI destinations and detected pedals
-          dl4 test                Sweep the Mix knob to confirm MIDI reaches the pedal
+          dl4 test                Flutter the TAP LED to confirm MIDI reaches the pedal
+          dl4 blink               Pulse the looper RECORD LED 3x (for pedals in Looper mode)
           dl4 conduct [--bpm N]   Run the tempo-locked delay conductor (default 132)
           dl4 loop [--port N]     Looper mode + phone remote (default 8888)
 

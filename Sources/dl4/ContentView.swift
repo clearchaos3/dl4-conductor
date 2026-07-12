@@ -291,23 +291,32 @@ struct ContentView: View {
                 Spacer()
             }
 
-            patternRow(label: model.pedalCount > 1 ? "Pattern — pedal A" : "Pattern (per bar)",
-                       steps: $model.sequenceA, isB: false)
+            // One pattern row per connected pedal (A…D)
+            ForEach(0..<max(1, min(model.pedalCount, 4)), id: \.self) { p in
+                patternRow(pedal: p)
+            }
             if model.pedalCount > 1 {
-                patternRow(label: "Pattern — pedal B", steps: $model.sequenceB, isB: true)
+                Toggle("Stagger feedback LFO across pedals", isOn: $model.lfoStaggered)
+                    .toggleStyle(.checkbox)
+                    .font(.system(size: 11))
+                    .foregroundStyle(.secondary)
             }
         }
     }
 
-    private func patternRow(label: String, steps: Binding<[Subdivision]>, isB: Bool) -> some View {
-        let highlight = model.currentBar >= 0 ? model.currentBar % steps.wrappedValue.count : -1
+    private func patternRow(pedal: Int) -> some View {
+        let steps = model.sequences[pedal]
+        let label = model.pedalCount > 1
+            ? "Pattern — pedal \(Conductor.pedalLetters[pedal])"
+            : "Pattern (per bar)"
+        let highlight = model.currentBar >= 0 && !steps.isEmpty ? model.currentBar % steps.count : -1
         return VStack(alignment: .leading, spacing: 6) {
             Text(label).font(.system(size: 11, weight: .semibold)).foregroundStyle(.secondary)
             HStack(spacing: 6) {
-                ForEach(Array(steps.wrappedValue.indices), id: \.self) { i in
-                    Menu(steps.wrappedValue[i].label) {
+                ForEach(Array(steps.indices), id: \.self) { i in
+                    Menu(steps[i].label) {
                         ForEach(Subdivision.allCases, id: \.rawValue) { s in
-                            Button(s.label) { steps.wrappedValue[i] = s }
+                            Button(s.label) { model.sequences[pedal][i] = s }
                         }
                     }
                     .menuStyle(.borderlessButton)
@@ -317,10 +326,10 @@ struct ContentView: View {
                     .background(RoundedRectangle(cornerRadius: 6)
                         .fill(i == highlight ? accent.opacity(0.35) : Color.white.opacity(0.06)))
                 }
-                Button { model.removeStep(fromB: isB) } label: { Image(systemName: "minus") }
-                    .buttonStyle(.borderless).disabled(steps.wrappedValue.count <= 1)
-                Button { model.addStep(toB: isB) } label: { Image(systemName: "plus") }
-                    .buttonStyle(.borderless).disabled(steps.wrappedValue.count >= 8)
+                Button { model.removeStep(pedal: pedal) } label: { Image(systemName: "minus") }
+                    .buttonStyle(.borderless).disabled(steps.count <= 1)
+                Button { model.addStep(pedal: pedal) } label: { Image(systemName: "plus") }
+                    .buttonStyle(.borderless).disabled(steps.count >= 8)
             }
         }
     }

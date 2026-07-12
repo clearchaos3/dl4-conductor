@@ -23,12 +23,14 @@ final class AppModel: ObservableObject {
     @Published var conductorLine = ""
     @Published var currentBar = -1
 
-    /// Per-bar subdivision patterns, editable live.
-    @Published var sequenceA: [Subdivision] = [.dottedEighth, .dottedEighth, .quarterTriplet, .eighth] {
-        didSet { conductor?.sequenceA = sequenceA }
+    /// Per-bar subdivision patterns (one per pedal, A…D), editable live.
+    @Published var sequences: [[Subdivision]] = Conductor.defaultSequences {
+        didSet { conductor?.sequences = sequences }
     }
-    @Published var sequenceB: [Subdivision] = [.quarterTriplet, .eighth, .dottedEighth, .dottedEighth] {
-        didSet { conductor?.sequenceB = sequenceB }
+    /// Phase-offset the feedback LFO per pedal so sweeps ripple across pedals instead
+    /// of breathing in unison. Off by default to keep the classic 2-pedal behavior.
+    @Published var lfoStaggered = false {
+        didSet { conductor?.lfoStaggered = lfoStaggered }
     }
 
     @Published var looperModeOn = false
@@ -74,16 +76,19 @@ final class AppModel: ObservableObject {
     var addressablePedals: Int { min(max(pedalCount, 2), 4) }
     var midiSourceSummary: String { midiSources.isEmpty ? "no sources" : midiSources.joined(separator: ", ") }
 
-    /// Flash one pedal's Mix knob ring so you can tell identical DL4s apart.
+    /// Make one pedal's TAP footswitch LED flutter (fast MIDI clock to just that
+    /// pedal) so you can tell identical DL4s apart. The MkII's knobs have no LED
+    /// rings — the TAP light is the only always-visible MIDI-reachable indicator.
+    /// Side effect: clock sets that pedal's delay tempo; re-tap if you had one.
     func identify(pedal: Int) {
         guard midi.pedals.indices.contains(pedal) else { return }
         let midi = self.midi
         DispatchQueue.global().async {
-            for _ in 0..<2 {
-                for v in stride(from: 0, through: 127, by: 4) { midi.cc(CC.mix, UInt8(v), to: pedal); usleep(6_000) }
-                for v in stride(from: 127, through: 0, by: -4) { midi.cc(CC.mix, UInt8(v), to: pedal); usleep(6_000) }
+            let interval = 60.0 / 250.0 / 24.0   // 250 BPM clock ticks
+            for _ in 0..<Int(2.5 / interval) {
+                midi.sendRaw([0xF8], to: pedal)
+                usleep(UInt32(interval * 1_000_000))
             }
-            midi.cc(CC.mix, 64, to: pedal)
         }
     }
 
@@ -363,8 +368,8 @@ final class AppModel: ObservableObject {
         if remoteOn { stopRemote() }
         if looperModeOn { looper.exitLooperMode(); looperModeOn = false }
         let c = Conductor(midi: midi, bpm: bpm)
-        c.sequenceA = sequenceA
-        c.sequenceB = sequenceB
+        c.sequences = sequences
+        c.lfoStaggered = lfoStaggered
         c.onBar = { [weak self] bar, line in
             DispatchQueue.main.async {
                 self?.conductorLine = line
@@ -384,13 +389,13 @@ final class AppModel: ObservableObject {
     }
 
     // Edit the patterns (clamped to 1...8 steps).
-    func addStep(toB: Bool) {
-        if toB { if sequenceB.count < 8 { sequenceB.append(.quarter) } }
-        else   { if sequenceA.count < 8 { sequenceA.append(.quarter) } }
+    func addStep(pedal: Int) {
+        guard sequences.indices.contains(pedal), sequences[pedal].count < 8 else { return }
+        sequences[pedal].append(.quarter)
     }
-    func removeStep(fromB: Bool) {
-        if fromB { if sequenceB.count > 1 { sequenceB.removeLast() } }
-        else     { if sequenceA.count > 1 { sequenceA.removeLast() } }
+    func removeStep(pedal: Int) {
+        guard sequences.indices.contains(pedal), sequences[pedal].count > 1 else { return }
+        sequences[pedal].removeLast()
     }
 
     // MARK: - Looper

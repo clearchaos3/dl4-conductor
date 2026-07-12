@@ -46,7 +46,7 @@ The same binary is a CLI when given a subcommand:
 
 ```sh
 swift run dl4 list                 # show MIDI destinations and detected pedals
-swift run dl4 test                 # sweep the Mix knob to confirm MIDI is getting through
+swift run dl4 test                 # flutter the TAP LED to confirm MIDI is getting through
 swift run dl4 conduct --bpm 132    # run the delay conductor
 swift run dl4 loop --port 8888     # looper mode + phone remote (open the printed URL on your phone)
 ```
