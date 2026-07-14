@@ -37,12 +37,19 @@ final class MidiInput {
     private var port = MIDIPortRef()
     private var connected = Set<MIDIEndpointRef>()
 
-    /// Called on the main thread for each event: (trigger, pressed, velocity).
+    /// Called on the CoreMIDI receive thread for each event — NOT the main thread.
+    /// The consumer sends MIDI inline for minimum latency and hops to main itself
+    /// for anything UI. (trigger, pressed, velocity)
     var onTrigger: ((MidiTrigger, Bool, UInt8) -> Void)?
 
     /// System-realtime clock messages (e.g. from Ableton), delivered on the main thread.
     enum ClockMsg { case tick, start, stop, cont }
     var onClock: ((ClockMsg) -> Void)?
+
+    /// Driver timestamp (mach host time) of the packet whose events are being
+    /// emitted right now. Valid only inside an onTrigger callback; used by
+    /// `dl4 lag` to measure the driver-to-app leg of the latency chain.
+    private(set) var currentPacketTime: MIDITimeStamp = 0
 
     init() {
         MIDIClientCreate("dl4-conductor-in" as CFString, nil, nil, &client)
@@ -73,6 +80,7 @@ final class MidiInput {
     fileprivate func handle(_ pktList: UnsafePointer<MIDIPacketList>) {
         var packet = pktList.pointee.packet
         for _ in 0..<pktList.pointee.numPackets {
+            currentPacketTime = packet.timeStamp
             let length = Int(packet.length)
             withUnsafeBytes(of: packet.data) { raw in
                 var i = 0
@@ -116,7 +124,9 @@ final class MidiInput {
     }
 
     private func emit(_ t: MidiTrigger, pressed: Bool, velocity: UInt8) {
-        DispatchQueue.main.async { [weak self] in self?.onTrigger?(t, pressed, velocity) }
+        // Deliver inline on the CoreMIDI thread — a main-thread hop here adds
+        // a full UI frame of latency to every pad press.
+        onTrigger?(t, pressed, velocity)
     }
     private func emitClock(_ m: ClockMsg) {
         DispatchQueue.main.async { [weak self] in self?.onClock?(m) }

@@ -122,6 +122,50 @@ enum CLI {
                 exit(1)
             }
 
+        case "lag":
+            // Times the software half of a pad press: USB driver timestamp →
+            // handler entry → a real MIDISend back out. The outbound message is
+            // a bare 0xF8 clock tick, which the pedal ignores without a clock
+            // start, so the test has zero audible side effects.
+            guard !midi.pedals.isEmpty else { print("No DL4 found. Run `dl4 list`."); exit(1) }
+            var tb = mach_timebase_info_data_t()
+            mach_timebase_info(&tb)
+            func toUs(_ delta: UInt64) -> Double {
+                Double(delta) * Double(tb.numer) / Double(tb.denom) / 1000.0
+            }
+            let input = MidiInput()
+            var samples: [Double] = []
+            print("Latency probe — tap Midi Fighter pads. Ctrl-C for stats.\n")
+            input.onTrigger = { t, pressed, _ in
+                guard pressed else { return }
+                let arrived = mach_absolute_time()
+                let stamped = input.currentPacketTime
+                midi.sendRaw([0xF8], to: 0)
+                let sent = mach_absolute_time()
+                let inUs = (stamped > 0 && stamped <= arrived) ? toUs(arrived - stamped) : Double.nan
+                let outUs = toUs(sent - arrived)
+                let total = inUs.isNaN ? outUs : inUs + outUs
+                samples.append(total)
+                let inStr = inUs.isNaN ? "  n/a" : String(format: "%5.0f", inUs)
+                print(String(format: "  %-6@ driver→app %@ µs   send %5.0f µs   total %5.0f µs",
+                             t.shortLabel as NSString, inStr, outUs, total))
+            }
+            signal(SIGINT, SIG_IGN)
+            let sig = DispatchSource.makeSignalSource(signal: SIGINT, queue: .main)
+            sig.setEventHandler {
+                let s = samples.sorted()
+                if s.isEmpty {
+                    print("\nNo presses seen.")
+                } else {
+                    print(String(format: "\n%d presses — min %.0f µs · median %.0f µs · max %.0f µs",
+                                 s.count, s[0], s[s.count / 2], s[s.count - 1]))
+                    print("(software path only; USB adds roughly a millisecond each direction)")
+                }
+                exit(0)
+            }
+            sig.resume()
+            withExtendedLifetime((input, midi)) { RunLoop.main.run() }
+
         default:
             usage()
         }
@@ -136,6 +180,7 @@ enum CLI {
           dl4 list                Show MIDI destinations and detected pedals
           dl4 test                Flutter the TAP LED to confirm MIDI reaches the pedal
           dl4 blink               Pulse the looper RECORD LED 3x (for pedals in Looper mode)
+          dl4 lag                 Measure pad-press latency (tap pads, Ctrl-C for stats)
           dl4 conduct [--bpm N]   Run the tempo-locked delay conductor (default 132)
           dl4 loop [--port N]     Looper mode + phone remote (default 8888)
 
