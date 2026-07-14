@@ -39,10 +39,10 @@ final class AppModel: ObservableObject {
 
     // Grid controller (Midi Fighter etc.)
     let led = ControllerLED()
-    @Published var gridEnabled = true
+    @Published var gridEnabled = true { didSet { rt.sync { $0.gridEnabled = gridEnabled } } }
     @Published var ledEnabled = true { didSet { refreshLEDs() } }
-    @Published var bindings: [PadBinding] = [] { didSet { saveBindings(); refreshLEDs() } }
-    @Published var learnTarget: LearnTarget?
+    @Published var bindings: [PadBinding] = [] { didSet { saveBindings(); refreshLEDs(); rt.sync { $0.bindings = bindings } } }
+    @Published var learnTarget: LearnTarget? { didSet { rt.sync { $0.learnArmed = learnTarget != nil } } }
     @Published var lastTrigger = ""
     @Published var midiSources: [String] = []
 
@@ -56,7 +56,7 @@ final class AppModel: ObservableObject {
     private var litTriggers = Set<MidiTrigger>()
 
     // Quantize: hold looper triggers and fire them on the next grid boundary.
-    @Published var quantizeEnabled = false { didSet { reconfigureClock() } }
+    @Published var quantizeEnabled = false { didSet { reconfigureClock(); rt.sync { $0.quantizeOn = quantizeEnabled } } }
     @Published var quantizeGrid: QuantizeGrid = .bar
     @Published var quantizeBeatsPerBar = 4
     @Published var pendingCount = 0
@@ -103,10 +103,10 @@ final class AppModel: ObservableObject {
         rescan()
         loadBindings()
         midiSources = midiIn.sourceNames()
-        // MIDI callbacks arrive on CoreMIDI's thread; published state must
-        // mutate on the main thread for SwiftUI.
+        // Realtime: MIDI goes out on CoreMIDI's thread the instant a pad
+        // lands; only UI/state bookkeeping hops to the main thread.
         midiIn.onTrigger = { [weak self] t, pressed, vel in
-            DispatchQueue.main.async { self?.handleTrigger(t, pressed: pressed, velocity: vel) }
+            self?.handleTriggerRealtime(t, pressed: pressed, velocity: vel)
         }
         midiIn.onClock = { [weak self] m in self?.handleClock(m) }
         // Hot-plug: refresh state (and reconnect input sources) whenever
@@ -120,9 +120,109 @@ final class AppModel: ObservableObject {
     /// Pedals that are actually reachable right now (slots can be unplugged).
     var presentPedals: Int { midi.presentCount }
 
+    // MARK: - Realtime fast path
+
+    /// Lock-protected mirror of everything the CoreMIDI thread needs so pad
+    /// presses can send MIDI immediately instead of waiting for the main
+    /// thread (which may be mid-render). Kept in sync from main via didSets.
+    final class RTMirror {
+        private let lock = NSLock()
+        private var state = State()
+        struct State {
+            var bindings: [PadBinding] = []
+            var gridEnabled = true
+            var quantizeOn = false
+            var learnArmed = false
+            var reverse = [Bool](repeating: false, count: 8)
+            var halfSpeed = [Bool](repeating: false, count: 8)
+        }
+        func sync(_ mutate: (inout State) -> Void) {
+            lock.lock(); mutate(&state); lock.unlock()
+        }
+        func read<T>(_ get: (State) -> T) -> T {
+            lock.lock(); defer { lock.unlock() }
+            return get(state)
+        }
+        /// Read-modify used by toggles: flips the flag and returns the new value.
+        func flip(_ path: WritableKeyPath<State, [Bool]>, _ i: Int) -> Bool {
+            lock.lock(); defer { lock.unlock() }
+            guard state[keyPath: path].indices.contains(i) else { return false }
+            state[keyPath: path][i].toggle()
+            return state[keyPath: path][i]
+        }
+    }
+    let rt = RTMirror()
+
+    /// Runs on the CoreMIDI thread. Sends the pad's MIDI right now when it
+    /// safely can (the common case), then hands off to the main thread for
+    /// state, LEDs, learn capture, and quantized actions.
+    func handleTriggerRealtime(_ t: MidiTrigger, pressed: Bool, velocity: UInt8) {
+        let snapshot = rt.read { $0 }
+        var sentIDs = Set<UUID>()
+        if snapshot.gridEnabled && !snapshot.learnArmed {
+            for b in snapshot.bindings where b.trigger == t {
+                let deferred = pressed && snapshot.quantizeOn && b.action.isLooperTiming
+                if !deferred {
+                    sendRealtime(b.action, pedal: b.pedal, pressed: pressed, velocity: velocity)
+                    sentIDs.insert(b.id)
+                }
+            }
+        }
+        DispatchQueue.main.async { [weak self] in
+            self?.handleTrigger(t, pressed: pressed, velocity: velocity, alreadySent: sentIDs)
+        }
+    }
+
+    /// MIDI-out only — no @Published access. State-dependent toggles use the
+    /// RT mirror; everything else is stateless sends.
+    private func sendRealtime(_ a: PadAction, pedal: Int, pressed: Bool, velocity: UInt8) {
+        func cc(_ c: UInt8, _ v: UInt8) {
+            if pedal < 0 { midi.ccAll(c, v) } else { midi.cc(c, v, to: pedal) }
+        }
+        let arg = UInt8(min(max(a.arg, 0), 127))
+        switch a.kind {
+        case .looper:
+            if pressed {
+                if a.looper == .once && pedal >= 0 {
+                    for p in midi.pedals.indices where p != pedal { looper.perform(.stop, on: p) }
+                }
+                looper.perform(a.looper, on: pedal)
+            }
+        case .delayModel:  if pressed { cc(CC.delayModel, arg) }
+        case .reverbModel: if pressed { cc(CC.reverbModel, arg) }
+        case .subdivision: if pressed { cc(CC.subdivision, arg) }
+        case .preset:
+            if pressed {
+                if pedal < 0 { for i in midi.pedals.indices { midi.programChange(arg, to: i) } }
+                else { midi.programChange(arg, to: pedal) }
+            }
+        case .tap:         if pressed { cc(CC.tapTempo, 127) }
+        case .squeal:      cc(CC.feedback, pressed ? 127 : 55)
+        case .kill:        cc(CC.bypass, pressed ? 127 : 0)
+        case .fullWet:     cc(CC.mix, pressed ? 127 : 64)
+        case .drop:        if pressed { looper.perform(.reverse, on: pedal); looper.perform(.half, on: pedal) }
+        case .build:       if pressed { DispatchQueue.main.async { [weak self] in self?.rampUp(pedal: pedal) } }
+        case .feedbackVel: if pressed { cc(CC.feedback, velocity) }
+        case .mixVel:      if pressed { cc(CC.mix, velocity) }
+        case .reverseToggle:
+            if pressed {
+                let targets = pedal < 0 ? Array(midi.pedals.indices) : [pedal]
+                for p in targets { midi.cc(CC.Looper.forwardReverse, rt.flip(\.reverse, p) ? 127 : 0, to: p) }
+            }
+        case .halfToggle:
+            if pressed {
+                let targets = pedal < 0 ? Array(midi.pedals.indices) : [pedal]
+                for p in targets { midi.cc(CC.Looper.fullHalf, rt.flip(\.halfSpeed, p) ? 127 : 0, to: p) }
+            }
+        }
+    }
+
     // MARK: - Grid controller
 
-    private func handleTrigger(_ t: MidiTrigger, pressed: Bool, velocity: UInt8) {
+    /// Main-thread bookkeeping. MIDI for bindings in `alreadySent` went out on
+    /// the realtime path — here we only track state and LEDs for those.
+    private func handleTrigger(_ t: MidiTrigger, pressed: Bool, velocity: UInt8,
+                               alreadySent: Set<UUID> = []) {
         if pressed { lastTrigger = t.label }
         if pressed, let target = learnTarget {
             bindings.removeAll { $0.trigger == t }          // one trigger → one binding
@@ -133,7 +233,10 @@ final class AppModel: ObservableObject {
         guard gridEnabled else { return }
         if pressed { heldTriggers.insert(t) } else { heldTriggers.remove(t) }
         for b in bindings where b.trigger == t {
-            if pressed, quantizeEnabled, b.action.isLooperTiming {
+            if alreadySent.contains(b.id) {
+                applySentEffects(b.action, pedal: b.pedal, pressed: pressed)
+                updateState(b.action, pedal: b.pedal, pressed: pressed)
+            } else if pressed, quantizeEnabled, b.action.isLooperTiming {
                 pendingActions.append((b.action, b.pedal))   // fire on the next grid boundary
                 pendingTriggers.insert(t)
                 pendingCount = pendingActions.count
@@ -143,6 +246,29 @@ final class AppModel: ObservableObject {
             }
         }
         refreshLEDs()
+    }
+
+    /// State effects that `perform` would have applied, for actions whose MIDI
+    /// already went out on the realtime path (no re-sending).
+    private func applySentEffects(_ a: PadAction, pedal: Int, pressed: Bool) {
+        guard pressed else { return }
+        switch a.kind {
+        case .looper where a.looper == .once && pedal >= 0:
+            // realtime path choked the others
+            for p in midi.pedals.indices where p != pedal {
+                if pedalStates.indices.contains(p), pedalStates[p].loop != .empty {
+                    pedalStates[p].loop = .stopped
+                }
+                activePedals.remove(p)
+            }
+        case .reverseToggle:
+            let targets = pedal < 0 ? Array(pedalStates.indices) : [pedal]
+            for p in targets where pedalStates.indices.contains(p) { pedalStates[p].reverse.toggle() }
+        case .halfToggle:
+            let targets = pedal < 0 ? Array(pedalStates.indices) : [pedal]
+            for p in targets where pedalStates.indices.contains(p) { pedalStates[p].halfSpeed.toggle() }
+        default: break
+        }
     }
 
     // MARK: - Quantize clock
@@ -221,9 +347,13 @@ final class AppModel: ObservableObject {
                 case .play, .once: pedalStates[p].loop = .playing; activePedals.insert(p)
                 case .stop:    pedalStates[p].loop = .stopped;    activePedals.remove(p)
                 case .reverse: pedalStates[p].reverse = true
+                    rt.sync { if $0.reverse.indices.contains(p) { $0.reverse[p] = true } }
                 case .forward: pedalStates[p].reverse = false
+                    rt.sync { if $0.reverse.indices.contains(p) { $0.reverse[p] = false } }
                 case .half:    pedalStates[p].halfSpeed = true
+                    rt.sync { if $0.halfSpeed.indices.contains(p) { $0.halfSpeed[p] = true } }
                 case .full:    pedalStates[p].halfSpeed = false
+                    rt.sync { if $0.halfSpeed.indices.contains(p) { $0.halfSpeed[p] = false } }
                 case .undo, .redo: break
                 }
             case .delayModel:  pedalStates[p].delayModel = a.arg
@@ -247,18 +377,27 @@ final class AppModel: ObservableObject {
 
     // MARK: - LED feedback
 
+    /// Cache of the last velocity (color) sent per pad, so refreshes only
+    /// touch pads whose color actually changed — a press used to repaint all
+    /// 64 pads over USB every time.
+    private var sentLEDColors: [MidiTrigger: UInt8] = [:]
+
     func refreshLEDs() {
         var current = Set<MidiTrigger>()
         if ledEnabled {
             for b in bindings where b.trigger.kind == .note {
                 current.insert(b.trigger)
-                led.setColor(note: b.trigger.data1, channel: b.trigger.channel,
-                             velocity: ledColor(for: b))
+                let color = ledColor(for: b)
+                if sentLEDColors[b.trigger] != color {
+                    led.setColor(note: b.trigger.data1, channel: b.trigger.channel, velocity: color)
+                    sentLEDColors[b.trigger] = color
+                }
             }
         }
         // Turn off pads that are no longer lit (unmapped, or LEDs disabled).
         for old in litTriggers.subtracting(current) {
             led.setColor(note: old.data1, channel: old.channel, velocity: LEDColor.off)
+            sentLEDColors[old] = nil
         }
         litTriggers = current
     }
@@ -349,6 +488,11 @@ final class AppModel: ObservableObject {
             let on = !pedalStates[p][keyPath: key]
             midi.cc(cc, on ? 127 : 0, to: p)
             pedalStates[p][keyPath: key] = on
+            // keep the realtime mirror in step with slow-path toggles
+            rt.sync { s in
+                if key == \PedalState.reverse, s.reverse.indices.contains(p) { s.reverse[p] = on }
+                if key == \PedalState.halfSpeed, s.halfSpeed.indices.contains(p) { s.halfSpeed[p] = on }
+            }
         }
     }
 
