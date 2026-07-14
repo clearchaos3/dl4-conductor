@@ -47,7 +47,7 @@ final class AppModel: ObservableObject {
     @Published var midiSources: [String] = []
 
     private var pedalStates = Array(repeating: PedalState(), count: 4)
-    private var heldTriggers = Set<MidiTrigger>()
+    @Published private(set) var heldTriggers = Set<MidiTrigger>()
     private var litTriggers = Set<MidiTrigger>()
 
     // Quantize: hold looper triggers and fire them on the next grid boundary.
@@ -81,7 +81,7 @@ final class AppModel: ObservableObject {
     /// MIDI Clock — which requires a clock START; bare ticks are ignored.
     /// Side effect: clock sync nudges that pedal's delay tempo; re-tap if needed.
     func identify(pedal: Int) {
-        guard midi.pedals.indices.contains(pedal) else { return }
+        guard midi.isPresent(pedal) else { return }
         let midi = self.midi
         DispatchQueue.global().async {
             midi.sendRaw([0xFA], to: pedal)          // start → LED blue
@@ -102,7 +102,16 @@ final class AppModel: ObservableObject {
             self?.handleTrigger(t, pressed: pressed, velocity: vel)
         }
         midiIn.onClock = { [weak self] m in self?.handleClock(m) }
+        // Hot-plug: refresh state (and reconnect input sources) whenever
+        // CoreMIDI's device list changes — no manual Rescan needed.
+        midi.onSetupChanged = { [weak self] in
+            self?.rescan()
+            self?.rescanMidiSources()
+        }
     }
+
+    /// Pedals that are actually reachable right now (slots can be unplugged).
+    var presentPedals: Int { midi.presentCount }
 
     // MARK: - Grid controller
 
@@ -343,9 +352,14 @@ final class AppModel: ObservableObject {
 
     func rescan() {
         pedalNames = midi.rescan()
-        status = pedalNames.isEmpty
-            ? "No DL4 detected — connect USB-C and power the pedal on."
-            : "Connected: \(pedalNames.joined(separator: ", "))"
+        if midi.presentCount == 0 {
+            status = "No DL4 detected — connect USB-C and power the pedal on."
+        } else {
+            status = pedalNames.enumerated().map { i, n in
+                let letter = i < Conductor.pedalLetters.count ? Conductor.pedalLetters[i] : "\(i + 1)"
+                return "\(letter) \(n == "(unplugged)" ? "✕" : "✓")"
+            }.joined(separator: "   ")
+        }
     }
 
     // MARK: - Test

@@ -20,11 +20,26 @@ final class DL4Midi {
     static let orderURL = FileManager.default.homeDirectoryForCurrentUser
         .appendingPathComponent("Library/Application Support/dl4-conductor/pedal-order.json")
 
+    /// Fired on the main thread whenever CoreMIDI's device list changes
+    /// (pedal plugged/unplugged) — after an automatic rescan.
+    var onSetupChanged: (() -> Void)?
+
     init() {
-        MIDIClientCreate("dl4-conductor" as CFString, nil, nil, &client)
+        MIDIClientCreateWithBlock("dl4-conductor" as CFString, &client) { [weak self] notification in
+            guard notification.pointee.messageID == .msgSetupChanged else { return }
+            DispatchQueue.main.async {
+                guard let self else { return }
+                self.rescan()
+                self.onSetupChanged?()
+            }
+        }
         MIDIOutputPortCreate(client, "dl4-out" as CFString, &outPort)
         rescan()
     }
+
+    /// Pedals currently reachable (slots with a live endpoint).
+    var presentCount: Int { pedals.filter { $0 != 0 }.count }
+    func isPresent(_ index: Int) -> Bool { pedals.indices.contains(index) && pedals[index] != 0 }
 
     static func savedOrder() -> [Int32] {
         (try? JSONDecoder().decode([Int32].self, from: Data(contentsOf: orderURL))) ?? []
@@ -50,14 +65,33 @@ final class DL4Midi {
             }
         }
         let order = Self.savedOrder()
-        let sorted = found.enumerated().sorted { a, b in
-            let ia = order.firstIndex(of: a.element.uid) ?? Int.max
-            let ib = order.firstIndex(of: b.element.uid) ?? Int.max
-            return ia != ib ? ia < ib : a.offset < b.offset
-        }.map(\.element)
-        pedals = sorted.map(\.ref)
-        pedalUIDs = sorted.map(\.uid)
-        return sorted.map(\.name)
+        if order.isEmpty {
+            pedals = found.map(\.ref)
+            pedalUIDs = found.map(\.uid)
+            return found.map(\.name)
+        }
+        // Slot model: each saved uid owns a fixed slot (A…D). A missing pedal
+        // leaves an EMPTY slot (ref 0) rather than compacting — otherwise the
+        // letters shift and the grid starts controlling the wrong pedal.
+        var refs: [MIDIEndpointRef] = []
+        var uids: [Int32] = []
+        var names: [String] = []
+        var claimed = Set<Int32>()
+        for uid in order {
+            if let f = found.first(where: { $0.uid == uid }) {
+                refs.append(f.ref); uids.append(uid); names.append(f.name)
+                claimed.insert(uid)
+            } else {
+                refs.append(0); uids.append(uid); names.append("(unplugged)")
+            }
+        }
+        // New pedals that aren't in the saved order go after the fixed slots.
+        for f in found where !claimed.contains(f.uid) {
+            refs.append(f.ref); uids.append(f.uid); names.append(f.name)
+        }
+        pedals = refs
+        pedalUIDs = uids
+        return names
     }
 
     /// Every MIDI destination name (for `list` / troubleshooting).
@@ -76,13 +110,13 @@ final class DL4Midi {
 
     /// Send raw bytes to one pedal index (no-op if that pedal isn't present).
     func sendRaw(_ bytes: [UInt8], to index: Int) {
-        guard pedals.indices.contains(index) else { return }
+        guard pedals.indices.contains(index), pedals[index] != 0 else { return }
         send(bytes, to: pedals[index])
     }
 
     /// Send raw bytes to every connected pedal.
     func sendRawAll(_ bytes: [UInt8]) {
-        for ep in pedals { send(bytes, to: ep) }
+        for ep in pedals where ep != 0 { send(bytes, to: ep) }
     }
 
     /// Control Change on channel 1 (status 0xB0).

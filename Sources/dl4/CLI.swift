@@ -19,7 +19,7 @@ enum CLI {
                 let saved = DL4Midi.savedOrder()
                 for (i, n) in pedals.enumerated() {
                     let uid = midi.pedalUIDs[i]
-                    let label = saved.contains(uid) ? " (\(letters[min(i, letters.count - 1)]))" : ""
+                    let label = i < saved.count && i < letters.count ? " (\(letters[i]))" : ""
                     print("  pedal[\(i)]\(label) -> \(n)  uid=\(uid)")
                 }
             }
@@ -84,6 +84,7 @@ enum CLI {
                 syncBlue(pedal: idx, seconds: 20)
             } else {
                 for i in midi.pedals.indices {
+                    guard midi.isPresent(i) else { print("  pedal[\(i)] unplugged — skipping"); continue }
                     print("  pedal[\(i)] BLUE now…")
                     syncBlue(pedal: i, seconds: 6)
                     sleep(2)

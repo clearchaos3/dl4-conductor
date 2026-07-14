@@ -33,6 +33,8 @@ struct ContentView: View {
             VStack(alignment: .leading, spacing: 18) {
                 header
                 Divider()
+                padMapSection
+                Divider()
                 conductorSection
                 Divider()
                 gridSection
@@ -44,6 +46,13 @@ struct ContentView: View {
         }
         .frame(width: 460, height: 820)
         .background(Color(red: 0.05, green: 0.06, blue: 0.055))
+    }
+
+    private var padMapSection: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("Pad Map").font(.headline)
+            GridMapView()
+        }
     }
 
     private var gridSection: some View {
