@@ -6,19 +6,39 @@ import SwiftUI
 /// while playing, TAP pulsing at the tempo, blue during identify).
 /// Tapping the pedal runs identify on the hardware.
 struct PedalView: View {
+    /// Enclosure finishes: standard Line 6 green, or the 25th Anniversary
+    /// silver-sparkle edition.
+    enum Finish { case green, silver }
+
     let letter: String
     let present: Bool
     let loop: LoopPhase
     let conducting: Bool
     let bpm: Double
     let identifying: Bool
+    var finish: Finish = .green
     var onTap: () -> Void = {}
 
-    // Line 6 green, sampled from the hardware
-    private var bodyTop: Color    { present ? Color(red: 0.35, green: 0.78, blue: 0.47) : Color(white: 0.30) }
-    private var bodyBottom: Color { present ? Color(red: 0.22, green: 0.62, blue: 0.35) : Color(white: 0.22) }
+    // Body colors sampled from the hardware photos
+    private var bodyTop: Color {
+        guard present else { return Color(white: 0.30) }
+        return finish == .green
+            ? Color(red: 0.35, green: 0.78, blue: 0.47)
+            : Color(red: 0.80, green: 0.81, blue: 0.79)
+    }
+    private var bodyBottom: Color {
+        guard present else { return Color(white: 0.22) }
+        return finish == .green
+            ? Color(red: 0.22, green: 0.62, blue: 0.35)
+            : Color(red: 0.58, green: 0.60, blue: 0.58)
+    }
     private let panelBlack = Color(red: 0.07, green: 0.08, blue: 0.07)
-    private var ringGreen: Color  { present ? Color(red: 0.28, green: 0.72, blue: 0.42) : Color(white: 0.4) }
+    private var ringGreen: Color {
+        guard present else { return Color(white: 0.4) }
+        return finish == .green
+            ? Color(red: 0.28, green: 0.72, blue: 0.42)
+            : Color(red: 0.78, green: 0.80, blue: 0.78)
+    }
 
     private let knobLabels = ["TIME", "REPEATS", "TWEAK", "TWEEZ", "MIX"]
 
@@ -209,7 +229,9 @@ struct PedalBoardView: View {
                             loop: model.loopPhase(pedal: i),
                             conducting: model.isConducting,
                             bpm: model.bpm,
-                            identifying: identifying.contains(i)
+                            identifying: identifying.contains(i),
+                            // Right column (B, D) are 25th Anniversary silvers
+                            finish: c == 1 ? .silver : .green
                         ) {
                             identifying.insert(i)
                             model.identify(pedal: i)
