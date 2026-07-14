@@ -304,7 +304,12 @@ final class AppModel: ObservableObject {
         }
         let arg = UInt8(min(max(a.arg, 0), 127))
         switch a.kind {
-        case .looper:      if pressed { looper.perform(a.looper, on: pedal) }
+        case .looper:
+            if pressed {
+                // "Once" is a choke group: only one DL4 speaks at a time
+                if a.looper == .once && pedal >= 0 { choke(except: pedal) }
+                looper.perform(a.looper, on: pedal)
+            }
         case .delayModel:  if pressed { cc(CC.delayModel, arg) }
         case .reverbModel: if pressed { cc(CC.reverbModel, arg) }
         case .subdivision: if pressed { cc(CC.subdivision, arg) }
@@ -320,6 +325,21 @@ final class AppModel: ObservableObject {
         case .reverseToggle: if pressed { toggle(\.reverse, cc: CC.Looper.forwardReverse, pedal: pedal) }
         case .halfToggle:    if pressed { toggle(\.halfSpeed, cc: CC.Looper.fullHalf, pedal: pedal) }
         }
+    }
+
+    /// Choke group: stop every other pedal's loop so only the chosen one plays.
+    /// Stops are sent to all present pedals (not just the ones we believe are
+    /// playing) because the DL4 reports nothing back — belief can be stale if
+    /// footswitches were used directly.
+    private func choke(except pedal: Int) {
+        for p in midi.pedals.indices where p != pedal && midi.isPresent(p) {
+            looper.perform(.stop, on: p)
+            if pedalStates.indices.contains(p), pedalStates[p].loop != .empty {
+                pedalStates[p].loop = .stopped
+            }
+            activePedals.remove(p)
+        }
+        refreshLEDs()
     }
 
     /// Flip a per-pedal boolean state and send the matching CC (64-127 on, 0 off).
