@@ -37,7 +37,7 @@ final class MidiInput {
     private var port = MIDIPortRef()
     private var connected = Set<MIDIEndpointRef>()
 
-    /// Called on the CoreMIDI receive thread for each event — NOT the main thread.
+    /// Called on the CoreMIDI receive thread for each event, NOT the main thread.
     /// The consumer sends MIDI inline for minimum latency and hops to main itself
     /// for anything UI. (trigger, pressed, velocity)
     var onTrigger: ((MidiTrigger, Bool, UInt8) -> Void)?
@@ -124,7 +124,7 @@ final class MidiInput {
     }
 
     private func emit(_ t: MidiTrigger, pressed: Bool, velocity: UInt8) {
-        // Deliver inline on the CoreMIDI thread — a main-thread hop here adds
+        // Deliver inline on the CoreMIDI thread: a main-thread hop here adds
         // a full UI frame of latency to every pad press.
         onTrigger?(t, pressed, velocity)
     }

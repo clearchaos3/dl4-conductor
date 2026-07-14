@@ -135,7 +135,7 @@ enum CLI {
             }
             let input = MidiInput()
             var samples: [Double] = []
-            print("Latency probe — tap Midi Fighter pads. Ctrl-C for stats.\n")
+            print("Latency probe: tap Midi Fighter pads. Ctrl-C for stats.\n")
             input.onTrigger = { t, pressed, _ in
                 guard pressed else { return }
                 let arrived = mach_absolute_time()
@@ -157,7 +157,7 @@ enum CLI {
                 if s.isEmpty {
                     print("\nNo presses seen.")
                 } else {
-                    print(String(format: "\n%d presses — min %.0f µs · median %.0f µs · max %.0f µs",
+                    print(String(format: "\n%d presses: min %.0f µs · median %.0f µs · max %.0f µs",
                                  s.count, s[0], s[s.count / 2], s[s.count - 1]))
                     print("(software path only; USB adds roughly a millisecond each direction)")
                 }
