@@ -212,7 +212,9 @@ struct PedalView: View {
     }
 }
 
-/// The 2x2 pedal board — mirrors the physical arrangement (A B / C D).
+/// The 2x2 pedal board — mirrors the physical arrangement. Letters follow the
+/// signal chain: guitar → A (bottom-right) → B (bottom-left) → C (top-right)
+/// → D (top-left) → out, so the on-screen positions are D C / B A.
 struct PedalBoardView: View {
     @EnvironmentObject var model: AppModel
     @State private var identifying = Set<Int>()
@@ -222,7 +224,7 @@ struct PedalBoardView: View {
             ForEach(0..<2, id: \.self) { r in
                 HStack(spacing: 12) {
                     ForEach(0..<2, id: \.self) { c in
-                        let i = r * 2 + c
+                        let i = 3 - (r * 2 + c)   // physical position → slot index
                         PedalView(
                             letter: Conductor.pedalLetters[i],
                             present: model.midi.isPresent(i),
@@ -230,7 +232,7 @@ struct PedalBoardView: View {
                             conducting: model.isConducting,
                             bpm: model.bpm,
                             identifying: identifying.contains(i),
-                            // Right column (B, D) are 25th Anniversary silvers
+                            // Right column of the square is the Anniversary silver pair
                             finish: c == 1 ? .silver : .green
                         ) {
                             identifying.insert(i)
