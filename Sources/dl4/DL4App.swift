@@ -9,6 +9,6 @@ struct DL4App: App {
         WindowGroup("DL4 Conductor") {
             ContentView().environmentObject(model)
         }
-        .windowResizability(.contentSize)
+        .windowResizability(.contentMinSize)
     }
 }

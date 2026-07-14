@@ -29,22 +29,34 @@ struct ContentView: View {
     @State private var cFX: FXKind = .squeal
 
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 18) {
+        // Two columns: the pad map fills whatever space the window gives it
+        // (fullscreen on the 1080p display makes it glanceable from the rig),
+        // controls stay in a fixed-width scrolling column on the right.
+        HStack(alignment: .top, spacing: 22) {
+            VStack(alignment: .leading, spacing: 16) {
                 header
                 Divider()
                 padMapSection
-                Divider()
-                conductorSection
-                Divider()
-                gridSection
-                Divider()
-                looperSection
+                Spacer(minLength: 0)
             }
-            .padding(22)
-            .frame(width: 460)
+            .frame(minWidth: 420, maxWidth: .infinity)
+
+            Divider()
+
+            ScrollView {
+                VStack(alignment: .leading, spacing: 18) {
+                    conductorSection
+                    Divider()
+                    gridSection
+                    Divider()
+                    looperSection
+                }
+                .padding(.trailing, 6)
+            }
+            .frame(width: 440)
         }
-        .frame(width: 460, height: 820)
+        .padding(22)
+        .frame(minWidth: 980, minHeight: 720)
         .background(Color(red: 0.05, green: 0.06, blue: 0.055))
     }
 

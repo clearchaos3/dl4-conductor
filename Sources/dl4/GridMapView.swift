@@ -30,43 +30,54 @@ struct GridMapView: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            ForEach(0..<8, id: \.self) { row in
-                HStack(spacing: 4) {
-                    ForEach(0..<8, id: \.self) { col in
-                        cell(row: row, col: col)
+        VStack(alignment: .leading, spacing: 6) {
+            // Scales with the window — fullscreen gives rig-glanceable cells
+            GeometryReader { geo in
+                let spacing = max(4, geo.size.width * 0.008)
+                let cw = (geo.size.width - spacing * 7) / 8
+                let ch = (geo.size.height - spacing * 7) / 8
+                VStack(spacing: spacing) {
+                    ForEach(0..<8, id: \.self) { row in
+                        HStack(spacing: spacing) {
+                            ForEach(0..<8, id: \.self) { col in
+                                cell(row: row, col: col, w: cw, h: ch)
+                            }
+                        }
                     }
                 }
             }
+            .aspectRatio(8.0 / 5.2, contentMode: .fit)
             Text("As you face the Midi Fighter · columns pair with pedals A–D · pads light while pressed")
                 .font(.system(size: 9)).foregroundStyle(.secondary)
         }
     }
 
     @ViewBuilder
-    private func cell(row: Int, col: Int) -> some View {
+    private func cell(row: Int, col: Int, w: CGFloat, h: CGFloat) -> some View {
         let n = MF64Grid.note(displayRow: row, col: col)
+        let corner = max(5, h * 0.14)
         if let b = binding(forNote: n) {
             let held = model.heldTriggers.contains(b.trigger)
             let color = categoryColor(b.action)
-            VStack(spacing: 1) {
+            VStack(spacing: max(1, h * 0.04)) {
                 Text(pedalLetter(b.pedal))
-                    .font(.system(size: 8, weight: .bold))
+                    .font(.system(size: max(8, h * 0.24), weight: .bold))
                     .foregroundStyle(.secondary)
                 Text(shortLabel(b.action))
-                    .font(.system(size: 8, weight: .semibold))
-                    .lineLimit(1).minimumScaleFactor(0.6)
+                    .font(.system(size: max(8, h * 0.28), weight: .semibold))
+                    .lineLimit(1).minimumScaleFactor(0.5)
+                    .padding(.horizontal, 2)
             }
-            .frame(width: 46, height: 30)
-            .background(RoundedRectangle(cornerRadius: 5)
+            .frame(width: w, height: h)
+            .background(RoundedRectangle(cornerRadius: corner)
                 .fill(held ? color.opacity(0.95) : color.opacity(0.28)))
-            .overlay(RoundedRectangle(cornerRadius: 5)
-                .stroke(held ? Color.white : color.opacity(0.5), lineWidth: held ? 1.5 : 0.5))
+            .overlay(RoundedRectangle(cornerRadius: corner)
+                .stroke(held ? Color.white : color.opacity(0.5), lineWidth: held ? 2 : 0.5))
             .help("\(pedalLetter(b.pedal)) — \(b.action.title)")
         } else {
-            RoundedRectangle(cornerRadius: 5)
+            RoundedRectangle(cornerRadius: corner)
                 .fill(Color.white.opacity(0.04))
-                .frame(width: 46, height: 30)
+                .frame(width: w, height: h)
         }
     }
 
