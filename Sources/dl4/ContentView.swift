@@ -29,48 +29,24 @@ struct ContentView: View {
     @State private var cFX: FXKind = .squeal
 
     var body: some View {
-        // Two columns: the pad map fills whatever space the window gives it
-        // (fullscreen on the 1080p display makes it glanceable from the rig),
-        // controls stay in a fixed-width scrolling column on the right.
-        HStack(alignment: .top, spacing: 22) {
-            VStack(alignment: .leading, spacing: 16) {
-                header
-                Divider()
-                padMapSection
-                Spacer(minLength: 0)
+        // Stage layout, orientation-aware: three columns on a landscape
+        // display; on a portrait (rotated) display everything stacks in
+        // glance-priority order — pedals, pad map, controls.
+        GeometryReader { geo in
+            let portrait = geo.size.height > geo.size.width
+            VStack(spacing: 14) {
+                toolbar
+                if portrait { portraitLayout } else { landscapeLayout }
             }
-            .frame(minWidth: 420, maxWidth: .infinity)
-
-            Divider()
-
-            ScrollView {
-                VStack(alignment: .leading, spacing: 18) {
-                    conductorSection
-                    Divider()
-                    gridSection
-                    Divider()
-                    looperSection
-                }
-                .padding(.trailing, 6)
-            }
-            .frame(width: 440)
+            .padding(18)
         }
-        .padding(22)
-        .frame(minWidth: 980, minHeight: 720)
-        .background(Color(red: 0.05, green: 0.06, blue: 0.055))
-    }
-
-    private var padMapSection: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Text("Pad Map").font(.headline)
-            GridMapView()
-        }
+        .frame(minWidth: 960, minHeight: 720)
+        .background(Color(red: 0.043, green: 0.051, blue: 0.047))
     }
 
     private var gridSection: some View {
         VStack(alignment: .leading, spacing: 10) {
             HStack(spacing: 16) {
-                Text("Grid Controller").font(.headline)
                 Spacer()
                 Toggle("LEDs", isOn: $model.ledEnabled).toggleStyle(.switch)
                 Toggle("Active", isOn: $model.gridEnabled).toggleStyle(.switch)
@@ -278,25 +254,93 @@ struct ContentView: View {
 
     // MARK: Header
 
-    private var header: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Text("DL4 CONDUCTOR")
-                .font(.system(size: 15, weight: .bold)).tracking(3).foregroundStyle(accent)
-            HStack(spacing: 8) {
-                Circle().fill(model.pedalCount > 0 ? accent : .gray).frame(width: 9, height: 9)
-                Text(model.status).font(.system(size: 12)).foregroundStyle(.secondary)
-                Spacer()
-                Button("Rescan") { model.rescan() }
-                Button("Test") { model.testSweep() }.disabled(model.pedalCount == 0)
+    private var landscapeLayout: some View {
+        HStack(alignment: .top, spacing: 14) {
+            VStack(spacing: 14) {
+                panel("PEDALBOARD") { PedalBoardView() }
+                Spacer(minLength: 0)
+            }
+            .frame(width: 470)
+
+            panel("MIDI FIGHTER 64") { GridMapView() }
+                .frame(maxWidth: .infinity)
+
+            ScrollView(showsIndicators: false) {
+                VStack(alignment: .leading, spacing: 14) {
+                    panel("CONDUCTOR") { conductorSection }
+                    panel("GRID CONTROLLER") { gridSection }
+                    panel("LOOPER") { looperSection }
+                }
+            }
+            .frame(width: 430)
+        }
+    }
+
+    private var portraitLayout: some View {
+        ScrollView(showsIndicators: false) {
+            VStack(alignment: .leading, spacing: 14) {
+                panel("PEDALBOARD") { PedalBoardView() }
+                panel("MIDI FIGHTER 64") { GridMapView() }
+                HStack(alignment: .top, spacing: 14) {
+                    panel("CONDUCTOR") { conductorSection }
+                    VStack(spacing: 14) {
+                        panel("GRID CONTROLLER") { gridSection }
+                        panel("LOOPER") { looperSection }
+                    }
+                }
             }
         }
+    }
+
+    /// Slim top bar: wordmark, one presence chip per pedal slot, live bar
+    /// readout while conducting, utilities on the right.
+    private var toolbar: some View {
+        HStack(spacing: 16) {
+            Text("DL4 CONDUCTOR")
+                .font(.system(size: 15, weight: .bold)).tracking(4).foregroundStyle(accent)
+            HStack(spacing: 8) {
+                ForEach(0..<max(model.pedalCount, 4), id: \.self) { i in
+                    let present = model.midi.isPresent(i)
+                    HStack(spacing: 4) {
+                        Circle().fill(present ? accent : Color(red: 0.75, green: 0.25, blue: 0.22))
+                            .frame(width: 7, height: 7)
+                        Text(i < Conductor.pedalLetters.count ? Conductor.pedalLetters[i] : "\(i + 1)")
+                            .font(.system(size: 11, weight: .semibold, design: .monospaced))
+                            .foregroundStyle(present ? .primary : .secondary)
+                    }
+                    .padding(.horizontal, 7).padding(.vertical, 3)
+                    .background(Capsule().fill(Color.white.opacity(0.06)))
+                }
+            }
+            Spacer()
+            if model.isConducting {
+                Text(model.conductorLine)
+                    .font(.system(size: 11, design: .monospaced)).foregroundStyle(.secondary)
+                    .lineLimit(1)
+            }
+            Button("Rescan") { model.rescan() }
+            Button("Test") { model.testSweep() }.disabled(model.presentPedals == 0)
+        }
+    }
+
+    /// Section card: silkscreen-style tracked title over a quiet panel.
+    private func panel<Content: View>(_ title: String, @ViewBuilder content: () -> Content) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text(title)
+                .font(.system(size: 10, weight: .bold)).tracking(2.4)
+                .foregroundStyle(.secondary)
+            content()
+        }
+        .padding(14)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(RoundedRectangle(cornerRadius: 10).fill(Color.white.opacity(0.045)))
+        .overlay(RoundedRectangle(cornerRadius: 10).stroke(Color.white.opacity(0.08), lineWidth: 1))
     }
 
     // MARK: Conductor
 
     private var conductorSection: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text("Delay Conductor").font(.headline)
             HStack {
                 Text("\(Int(model.bpm)) BPM")
                     .font(.system(size: 14, design: .monospaced)).frame(width: 78, alignment: .leading)
@@ -360,12 +404,11 @@ struct ContentView: View {
     private var looperSection: some View {
         VStack(alignment: .leading, spacing: 12) {
             HStack {
-                Text("Looper").font(.headline)
                 Spacer()
                 Toggle("Looper mode", isOn: Binding(
                     get: { model.looperModeOn },
                     set: { model.setLooperMode($0) }))
-                    .toggleStyle(.switch).disabled(model.pedalCount == 0)
+                    .toggleStyle(.switch).disabled(model.presentPedals == 0)
             }
             LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 8), count: 3), spacing: 8) {
                 looperButton("● Record", "record", .red)

@@ -46,7 +46,12 @@ final class AppModel: ObservableObject {
     @Published var lastTrigger = ""
     @Published var midiSources: [String] = []
 
-    private var pedalStates = Array(repeating: PedalState(), count: 4)
+    @Published private(set) var pedalStates = Array(repeating: PedalState(), count: 4)
+
+    /// Looper phase the app believes a pedal is in (for the pedal renders).
+    func loopPhase(pedal: Int) -> LoopPhase {
+        pedalStates.indices.contains(pedal) ? pedalStates[pedal].loop : .empty
+    }
     @Published private(set) var heldTriggers = Set<MidiTrigger>()
     private var litTriggers = Set<MidiTrigger>()
 
@@ -98,8 +103,10 @@ final class AppModel: ObservableObject {
         rescan()
         loadBindings()
         midiSources = midiIn.sourceNames()
+        // MIDI callbacks arrive on CoreMIDI's thread; published state must
+        // mutate on the main thread for SwiftUI.
         midiIn.onTrigger = { [weak self] t, pressed, vel in
-            self?.handleTrigger(t, pressed: pressed, velocity: vel)
+            DispatchQueue.main.async { self?.handleTrigger(t, pressed: pressed, velocity: vel) }
         }
         midiIn.onClock = { [weak self] m in self?.handleClock(m) }
         // Hot-plug: refresh state (and reconnect input sources) whenever
