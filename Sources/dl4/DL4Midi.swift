@@ -128,6 +128,25 @@ final class DL4Midi {
         sendRawAll([0xB0, controller, min(value, 127)])
     }
 
+    /// Reset one pedal's MIDI-overridable state to a known baseline: un-bypass,
+    /// 50% mix, moderate repeats, forward, full speed. This clears anything a
+    /// performance pad may have left stuck (a lost Kill release = bypassed pedal
+    /// that silently ignores looper record). Any CC we send overrides the
+    /// physical knob until it's moved, so we park sane values; moving a knob
+    /// takes that parameter back.
+    func zero(pedal index: Int) {
+        cc(CC.bypass, 0, to: index)
+        cc(CC.mix, 64, to: index)
+        cc(CC.feedback, 55, to: index)
+        cc(CC.Looper.forwardReverse, 0, to: index)
+        cc(CC.Looper.fullHalf, 0, to: index)
+    }
+
+    /// Zero every connected pedal.
+    func zeroAll() {
+        for i in pedals.indices where pedals[i] != 0 { zero(pedal: i) }
+    }
+
     /// Program Change on channel 1 (status 0xC0). 0 = preset A … 127 = preset 128.
     func programChange(_ program: UInt8, to index: Int) {
         sendRaw([0xC0, min(program, 127)], to: index)

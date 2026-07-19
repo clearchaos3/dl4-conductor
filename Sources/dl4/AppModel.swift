@@ -587,6 +587,23 @@ final class AppModel: ObservableObject {
 
     // MARK: - Looper
 
+    /// Send every pedal a known-clean baseline (un-bypass, 50% mix, moderate
+    /// repeats, forward, full speed) and reset the app's toggle state to match.
+    /// Recovers from stuck performance-pad overrides, e.g. a lost Kill release
+    /// leaving a pedal bypassed so looper record silently does nothing.
+    func zeroAll() {
+        midi.zeroAll()
+        rt.sync {
+            $0.reverse = [Bool](repeating: false, count: 8)
+            $0.halfSpeed = [Bool](repeating: false, count: 8)
+        }
+        for p in pedalStates.indices {
+            pedalStates[p].reverse = false
+            pedalStates[p].halfSpeed = false
+        }
+        refreshLEDs()
+    }
+
     func setLooperMode(_ on: Bool) {
         looperModeOn = on
         if on {

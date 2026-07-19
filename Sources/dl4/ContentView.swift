@@ -319,6 +319,8 @@ struct ContentView: View {
                     .lineLimit(1)
             }
             Button("Rescan") { model.rescan() }
+            Button("Zero") { model.zeroAll() }.disabled(model.presentPedals == 0)
+                .help("Reset all pedals to a clean baseline: un-bypass, 50% mix, moderate repeats, forward, full speed")
             Button("Test") { model.testSweep() }.disabled(model.presentPedals == 0)
         }
     }

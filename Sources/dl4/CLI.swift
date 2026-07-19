@@ -122,6 +122,96 @@ enum CLI {
                 exit(1)
             }
 
+        case "zero":
+            guard !midi.pedals.isEmpty else { print("No DL4 found. Run `dl4 list`."); exit(1) }
+            let present = midi.pedals.indices.filter { midi.isPresent($0) }
+            midi.zeroAll()
+            let letters = present.map { Conductor.pedalLetters[$0] }.joined(separator: ", ")
+            print("Zeroed \(present.count) pedal(s): \(letters)")
+            print("""
+
+            Sent to each: bypass OFF, mix 50%, repeats moderate, forward, full speed.
+            This clears stuck performance-pad states (a lost Kill release leaves a
+            pedal bypassed, and a bypassed DL4 ignores looper record entirely).
+
+            Note: these values now override the physical knobs. Wiggle any knob to
+            hand that parameter back to the hardware.
+            """)
+
+        case "doctor":
+            // Interactive per-pedal looper checkup, entirely user-paced (press
+            // Enter to advance; no timed windows). Separates MIDI-path failures
+            // (record LED never lights) from audio-path failures (LED lights but
+            // no loop heard).
+            guard !midi.pedals.isEmpty else { print("No DL4 found. Run `dl4 list`."); exit(1) }
+            let positions = ["bottom-right", "bottom-left", "top-right (silver)", "top-left (silver)"]
+            func ask(_ q: String) -> Bool {
+                while true {
+                    print("\(q) [y/n] ", terminator: "")
+                    guard let a = readLine()?.lowercased() else { return false }
+                    if a.hasPrefix("y") { return true }
+                    if a.hasPrefix("n") { return false }
+                }
+            }
+            func pause(_ msg: String) {
+                print(msg, terminator: "")
+                _ = readLine()
+            }
+            print("""
+            DL4 doctor: checks each pedal one at a time, at your pace.
+            Signal chain: guitar -> A (bottom-right) -> B (bottom-left) -> C (top-right) -> D (top-left) -> out.
+            Each pedal is zeroed and put in looper mode first, so stuck bypass/mix states get cleared as we go.
+            """)
+            var results: [(String, Bool, Bool, Bool)] = []   // letter, present, midiOK, audioOK
+            for i in midi.pedals.indices {
+                let letter = Conductor.pedalLetters[i]
+                guard midi.isPresent(i) else {
+                    print("\nPedal \(letter) (\(positions[i])): unplugged, skipping.")
+                    results.append((letter, false, false, false))
+                    continue
+                }
+                print("\n=== Pedal \(letter) (\(positions[i])) ===")
+                midi.zero(pedal: i)
+                midi.cc(CC.Looper.onOff, 127, to: i)
+                usleep(150_000)
+                pause("Zeroed and set to looper mode. Watch pedal \(letter), then press Enter to send RECORD... ")
+                midi.cc(CC.Looper.recordOverdub, 127, to: i)
+                let midiOK = ask("Did its A footswitch light turn RED (recording)?")
+                var audioOK = false
+                if midiOK {
+                    pause("Play a riff now, then press Enter to stop recording and loop it back... ")
+                    midi.cc(CC.Looper.stopPlay, 127, to: i)   // ends record, starts playback
+                    audioOK = ask("Do you hear the loop playing back?")
+                    midi.cc(CC.Looper.stopPlay, 0, to: i)     // stop
+                    midi.cc(CC.Looper.undoRedo, 0, to: i)     // undo: leave no loop behind
+                } else {
+                    midi.cc(CC.Looper.stopPlay, 0, to: i)     // in case it recorded without a visible LED
+                    midi.cc(CC.Looper.undoRedo, 0, to: i)
+                }
+                results.append((letter, true, midiOK, audioOK))
+            }
+            print("\n=== Results ===")
+            for (letter, present, midiOK, audioOK) in results {
+                let status = !present ? "unplugged"
+                    : !midiOK ? "MIDI NOT REACHING PEDAL"
+                    : !audioOK ? "MIDI ok, NO AUDIO"
+                    : "ok"
+                print("  \(letter): \(status)")
+            }
+            print("")
+            if results.contains(where: { $0.1 && !$0.2 }) {
+                print("MIDI failures: replug that pedal's USB, run `dl4 list`, and if it still")
+                print("shows but won't respond, run `sudo killall MIDIServer` and rescan.")
+            }
+            if results.contains(where: { $0.2 && !$0.3 }) {
+                print("Audio failures: MIDI reached the pedal, so it's the audio path. The chain")
+                print("is series, so check the patch cable INTO that pedal, its output cable,")
+                print("and wiggle its MIX knob (a MIDI override may have parked it full wet).")
+            }
+            if results.allSatisfy({ !$0.1 || $0.3 }) && results.contains(where: { $0.1 }) {
+                print("Everything checks out. All pedals are zeroed and in looper mode.")
+            }
+
         case "lag":
             // Times the software half of a pad press: USB driver timestamp →
             // handler entry → a real MIDISend back out. The outbound message is
@@ -180,6 +270,8 @@ enum CLI {
           dl4 list                Show MIDI destinations and detected pedals
           dl4 test                Flutter the TAP LED to confirm MIDI reaches the pedal
           dl4 blink               Pulse the looper RECORD LED 3x (for pedals in Looper mode)
+          dl4 zero                Reset all pedals to a clean baseline (clears stuck bypass/mix/repeats)
+          dl4 doctor              Interactive per-pedal looper checkup (you confirm lights and audio)
           dl4 lag                 Measure pad-press latency (tap pads, Ctrl-C for stats)
           dl4 conduct [--bpm N]   Run the tempo-locked delay conductor (default 132)
           dl4 loop [--port N]     Looper mode + phone remote (default 8888)
