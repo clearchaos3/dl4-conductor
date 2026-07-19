@@ -212,6 +212,20 @@ enum CLI {
                 print("Everything checks out. All pedals are zeroed and in looper mode.")
             }
 
+        case "layout":
+            let name = CommandLine.arguments.dropFirst(2).first ?? "function-rows"
+            guard let bindings = GridLayouts.make(name) else {
+                print("Unknown layout \"\(name)\". Available: \(GridLayouts.names.joined(separator: ", "))")
+                exit(1)
+            }
+            guard let data = try? JSONEncoder().encode(bindings),
+                  let defaults = UserDefaults(suiteName: "com.ryanlee.dl4conductor") else {
+                print("Could not encode or open the app's preferences."); exit(1)
+            }
+            defaults.set(data, forKey: "gridBindings")
+            print("Installed layout \"\(name)\" (\(bindings.count) pads).")
+            print("Install with DL4 Conductor closed, then relaunch it; a running app saves its old bindings over these on quit.")
+
         case "firmware":
             // Standard MIDI identity request (SysEx F0 7E 7F 06 01 F7), sent to
             // one pedal at a time so each reply is unambiguous.
@@ -302,6 +316,7 @@ enum CLI {
           dl4 test                Flutter the TAP LED to confirm MIDI reaches the pedal
           dl4 blink               Pulse the looper RECORD LED 3x (for pedals in Looper mode)
           dl4 firmware            Read each pedal's firmware version over USB MIDI
+          dl4 layout [name]       Install a Midi Fighter pad layout (default: function-rows)
           dl4 zero                Reset all pedals to a clean baseline (clears stuck bypass/mix/repeats)
           dl4 doctor              Interactive per-pedal looper checkup (you confirm lights and audio)
           dl4 lag                 Measure pad-press latency (tap pads, Ctrl-C for stats)
