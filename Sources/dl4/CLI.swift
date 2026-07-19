@@ -324,9 +324,10 @@ enum CLI {
             return "\(mfr), malformed reply (\(b.count) bytes)"
         }
         // Revision is four bytes, least-significant first: [build, patch, minor,
-        // major]. A DL4 MkII on 1.10 replies 00 00 01 01 -> 1.1.0 -> "1.10".
+        // major]. A DL4 MkII on 1.01.0 replies 00 00 01 01 (verified against
+        // what Line 6 Updater displays for the same pedal).
         let ver = Array(b.suffix(5).prefix(4))
-        let dotted = "\(ver[3]).\(ver[2])\(ver[1])"
+        let dotted = String(format: "%d.%02d", ver[3], ver[2])
         let note = dotted == Self.latestDL4Firmware
             ? "(latest)"
             : "** UPDATE AVAILABLE: \(Self.latestDL4Firmware) **"
