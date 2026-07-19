@@ -51,6 +51,12 @@ final class MidiInput {
     /// `dl4 lag` to measure the driver-to-app leg of the latency chain.
     private(set) var currentPacketTime: MIDITimeStamp = 0
 
+    /// Complete SysEx messages (F0...F7), delivered on the CoreMIDI thread.
+    /// Used by `dl4 firmware` to read identity replies.
+    var onSysEx: (([UInt8]) -> Void)?
+    private var sysexBuf: [UInt8] = []
+    private var inSysEx = false
+
     init() {
         MIDIClientCreate("dl4-conductor-in" as CFString, nil, nil, &client)
         let refCon = Unmanaged.passUnretained(self).toOpaque()
@@ -86,7 +92,6 @@ final class MidiInput {
                 var i = 0
                 while i < length {
                     let status = raw[i]
-                    guard status & 0x80 != 0 else { i += 1; continue }
                     if status >= 0xF8 {            // system realtime — single byte, may interleave
                         switch status {
                         case 0xF8: emitClock(.tick)
@@ -97,6 +102,28 @@ final class MidiInput {
                         }
                         i += 1; continue
                     }
+                    if inSysEx {                   // SysEx body may span packets
+                        if status == 0xF7 {
+                            sysexBuf.append(0xF7)
+                            inSysEx = false
+                            onSysEx?(sysexBuf)
+                            sysexBuf = []
+                            i += 1; continue
+                        }
+                        if status & 0x80 != 0 {    // aborted by a new status byte
+                            inSysEx = false
+                            sysexBuf = []
+                            continue               // reprocess this byte normally
+                        }
+                        sysexBuf.append(status)
+                        i += 1; continue
+                    }
+                    if status == 0xF0 {
+                        inSysEx = true
+                        sysexBuf = [0xF0]
+                        i += 1; continue
+                    }
+                    guard status & 0x80 != 0 else { i += 1; continue }
                     let hi = status & 0xF0
                     let ch = status & 0x0F
                     switch hi {

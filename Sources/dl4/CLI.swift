@@ -212,6 +212,37 @@ enum CLI {
                 print("Everything checks out. All pedals are zeroed and in looper mode.")
             }
 
+        case "firmware":
+            // Standard MIDI identity request (SysEx F0 7E 7F 06 01 F7), sent to
+            // one pedal at a time so each reply is unambiguous.
+            guard !midi.pedals.isEmpty else { print("No DL4 found. Run `dl4 list`."); exit(1) }
+            let input = MidiInput()
+            let sem = DispatchSemaphore(value: 0)
+            var reply: [UInt8]?
+            input.onSysEx = { bytes in
+                // Identity reply: F0 7E <dev> 06 02 <mfr...> ... F7
+                if bytes.count >= 6, bytes[1] == 0x7E, bytes[3] == 0x06, bytes[4] == 0x02 {
+                    reply = bytes
+                    sem.signal()
+                }
+            }
+            print("Querying each pedal's firmware over USB MIDI…\n")
+            for i in midi.pedals.indices {
+                let letter = Conductor.pedalLetters[i]
+                guard midi.isPresent(i) else { print("  \(letter): unplugged"); continue }
+                reply = nil
+                midi.sendRaw([0xF0, 0x7E, 0x7F, 0x06, 0x01, 0xF7], to: i)
+                if sem.wait(timeout: .now() + 1.5) == .success, let r = reply {
+                    print("  \(letter): \(decodeIdentity(r))")
+                    if CommandLine.arguments.contains("--raw") {
+                        print("     full reply: \(r.map { String(format: "%02X", $0) }.joined(separator: " "))")
+                    }
+                } else {
+                    print("  \(letter): no reply (try `sudo killall MIDIServer` and rerun if others answered)")
+                }
+            }
+            withExtendedLifetime(input) {}
+
         case "lag":
             // Times the software half of a pad press: USB driver timestamp →
             // handler entry → a real MIDISend back out. The outbound message is
@@ -270,6 +301,7 @@ enum CLI {
           dl4 list                Show MIDI destinations and detected pedals
           dl4 test                Flutter the TAP LED to confirm MIDI reaches the pedal
           dl4 blink               Pulse the looper RECORD LED 3x (for pedals in Looper mode)
+          dl4 firmware            Read each pedal's firmware version over USB MIDI
           dl4 zero                Reset all pedals to a clean baseline (clears stuck bypass/mix/repeats)
           dl4 doctor              Interactive per-pedal looper checkup (you confirm lights and audio)
           dl4 lag                 Measure pad-press latency (tap pads, Ctrl-C for stats)
@@ -278,6 +310,27 @@ enum CLI {
 
         For `conduct`: set DL4 Global Settings ▸ Receive MIDI Clock to Auto or On (Auto is the factory default).
         """)
+    }
+
+    /// Newest DL4 MkII firmware, per Line 6's release notes (checked 2026-07-19).
+    private static let latestDL4Firmware = "1.10"
+
+    /// Decode a MIDI identity reply. Line 6's manufacturer ID is 00 01 0C; the
+    /// four bytes before the trailing F7 are the software revision.
+    private static func decodeIdentity(_ b: [UInt8]) -> String {
+        let isLine6 = b.count >= 8 && b[5] == 0x00 && b[6] == 0x01 && b[7] == 0x0C
+        let mfr = isLine6 ? "Line 6" : "mfr \(b.dropFirst(5).prefix(3).map { String(format: "%02X", $0) }.joined(separator: " "))"
+        guard b.count >= 6, b.last == 0xF7 else {
+            return "\(mfr), malformed reply (\(b.count) bytes)"
+        }
+        // Revision is four bytes, least-significant first: [build, patch, minor,
+        // major]. A DL4 MkII on 1.10 replies 00 00 01 01 -> 1.1.0 -> "1.10".
+        let ver = Array(b.suffix(5).prefix(4))
+        let dotted = "\(ver[3]).\(ver[2])\(ver[1])"
+        let note = dotted == Self.latestDL4Firmware
+            ? "(latest)"
+            : "** UPDATE AVAILABLE: \(Self.latestDL4Firmware) **"
+        return "\(mfr) firmware \(dotted) \(note)"
     }
 
     private static func argValue(_ name: String) -> String? {
