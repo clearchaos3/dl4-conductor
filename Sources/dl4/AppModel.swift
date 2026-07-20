@@ -43,8 +43,11 @@ final class AppModel: ObservableObject {
     @Published var ledEnabled = true { didSet { refreshLEDs() } }
     @Published var bindings: [PadBinding] = [] { didSet { saveBindings(); refreshLEDs(); rt.sync { $0.bindings = bindings } } }
     @Published var learnTarget: LearnTarget? { didSet { rt.sync { $0.learnArmed = learnTarget != nil } } }
-    @Published var lastTrigger = ""
     @Published var midiSources: [String] = []
+
+    /// Pad visuals live outside this model so mashing pads doesn't invalidate
+    /// every view observing AppModel.
+    let activity = PadActivity()
 
     @Published private(set) var pedalStates = Array(repeating: PedalState(), count: 4)
 
@@ -52,8 +55,10 @@ final class AppModel: ObservableObject {
     func loopPhase(pedal: Int) -> LoopPhase {
         pedalStates.indices.contains(pedal) ? pedalStates[pedal].loop : .empty
     }
-    @Published private(set) var heldTriggers = Set<MidiTrigger>()
     private var litTriggers = Set<MidiTrigger>()
+    private let uiEventLock = NSLock()
+    private var uiEventQueue: [(MidiTrigger, Bool, UInt8, Set<UUID>)] = []
+    private var uiDrainScheduled = false
 
     // Quantize: hold looper triggers and fire them on the next grid boundary.
     @Published var quantizeEnabled = false { didSet { reconfigureClock(); rt.sync { $0.quantizeOn = quantizeEnabled } } }
@@ -168,8 +173,30 @@ final class AppModel: ObservableObject {
                 }
             }
         }
-        DispatchQueue.main.async { [weak self] in
-            self?.handleTrigger(t, pressed: pressed, velocity: velocity, alreadySent: sentIDs)
+        // Coalesce UI bookkeeping: during fast mashing, one main-thread drain
+        // handles the whole burst instead of queueing a hop per event.
+        uiEventLock.lock()
+        uiEventQueue.append((t, pressed, velocity, sentIDs))
+        let scheduleDrain = !uiDrainScheduled
+        if scheduleDrain { uiDrainScheduled = true }
+        uiEventLock.unlock()
+        if scheduleDrain {
+            DispatchQueue.main.async { [weak self] in self?.drainUIEvents() }
+        }
+    }
+
+    private func drainUIEvents() {
+        uiEventLock.lock()
+        let events = uiEventQueue
+        uiEventQueue.removeAll()
+        uiDrainScheduled = false
+        uiEventLock.unlock()
+        // Pad visuals first — the cheap, latency-visible part.
+        for (t, pressed, _, _) in events {
+            pressed ? activity.press(t) : activity.release(t)
+        }
+        for (t, pressed, velocity, sentIDs) in events {
+            handleTrigger(t, pressed: pressed, velocity: velocity, alreadySent: sentIDs)
         }
     }
 
@@ -223,7 +250,6 @@ final class AppModel: ObservableObject {
     /// the realtime path — here we only track state and LEDs for those.
     private func handleTrigger(_ t: MidiTrigger, pressed: Bool, velocity: UInt8,
                                alreadySent: Set<UUID> = []) {
-        if pressed { lastTrigger = t.label }
         if pressed, let target = learnTarget {
             bindings.removeAll { $0.trigger == t }          // one trigger → one binding
             bindings.append(PadBinding(trigger: t, pedal: target.pedal, action: target.action))
@@ -231,7 +257,6 @@ final class AppModel: ObservableObject {
             return
         }
         guard gridEnabled else { return }
-        if pressed { heldTriggers.insert(t) } else { heldTriggers.remove(t) }
         for b in bindings where b.trigger == t {
             if alreadySent.contains(b.id) {
                 applySentEffects(b.action, pedal: b.pedal, pressed: pressed)
@@ -405,7 +430,7 @@ final class AppModel: ObservableObject {
     private func ledColor(for b: PadBinding) -> UInt8 {
         if pendingTriggers.contains(b.trigger) { return LEDColor.amber }   // armed, waiting for the grid
         let st = pedalStates[b.pedal < 0 ? 0 : min(b.pedal, pedalStates.count - 1)]
-        let held = heldTriggers.contains(b.trigger)
+        let held = activity.lit.contains(b.trigger)
         switch b.action.kind {
         case .looper:
             switch b.action.looper {

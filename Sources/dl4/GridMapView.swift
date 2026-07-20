@@ -24,6 +24,7 @@ enum MF64Grid {
 /// lighting cells live as pads are pressed.
 struct GridMapView: View {
     @EnvironmentObject var model: AppModel
+    @ObservedObject var activity: PadActivity
 
     private func binding(forNote n: UInt8) -> PadBinding? {
         model.bindings.first { $0.trigger.kind == .note && $0.trigger.data1 == n }
@@ -57,7 +58,7 @@ struct GridMapView: View {
         let n = MF64Grid.note(displayRow: row, col: col)
         let corner = max(5, h * 0.14)
         if let b = binding(forNote: n) {
-            let held = model.heldTriggers.contains(b.trigger)
+            let held = activity.lit.contains(b.trigger)
             let color = categoryColor(b.action)
             VStack(spacing: max(1, h * 0.04)) {
                 Text(pedalLetter(b.pedal))

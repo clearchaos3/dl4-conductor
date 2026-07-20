@@ -66,11 +66,13 @@ struct ContentView: View {
 
             composer
 
-            Text(model.learnTarget == nil
-                 ? "Last in: \(model.lastTrigger.isEmpty ? "—" : model.lastTrigger)"
-                 : "Press the pad to assign…")
-                .font(.system(size: 11, design: .monospaced))
-                .foregroundStyle(model.learnTarget == nil ? .secondary : accent)
+            if model.learnTarget == nil {
+                LastInText(activity: model.activity)
+            } else {
+                Text("Press the pad to assign…")
+                    .font(.system(size: 11, design: .monospaced))
+                    .foregroundStyle(accent)
+            }
 
             quantizeRow
 
@@ -262,7 +264,7 @@ struct ContentView: View {
             }
             .frame(width: 470)
 
-            panel("MIDI FIGHTER 64") { GridMapView() }
+            panel("MIDI FIGHTER 64") { GridMapView(activity: model.activity) }
                 .frame(maxWidth: .infinity)
 
             ScrollView(showsIndicators: false) {
@@ -280,7 +282,7 @@ struct ContentView: View {
         ScrollView(showsIndicators: false) {
             VStack(alignment: .leading, spacing: 14) {
                 panel("PEDALBOARD") { PedalBoardView() }
-                panel("MIDI FIGHTER 64") { GridMapView() }
+                panel("MIDI FIGHTER 64") { GridMapView(activity: model.activity) }
                 HStack(alignment: .top, spacing: 14) {
                     panel("CONDUCTOR") { conductorSection }
                     VStack(spacing: 14) {
@@ -322,6 +324,17 @@ struct ContentView: View {
             Button("Zero") { model.zeroAll() }.disabled(model.presentPedals == 0)
                 .help("Reset all pedals to a clean baseline: un-bypass, 50% mix, moderate repeats, forward, full speed")
             Button("Test") { model.testSweep() }.disabled(model.presentPedals == 0)
+        }
+    }
+
+    /// Observes PadActivity alone so per-press label updates don't re-render
+    /// the whole ContentView.
+    private struct LastInText: View {
+        @ObservedObject var activity: PadActivity
+        var body: some View {
+            Text("Last in: \(activity.lastLabel.isEmpty ? "—" : activity.lastLabel)")
+                .font(.system(size: 11, design: .monospaced))
+                .foregroundStyle(.secondary)
         }
     }
 
