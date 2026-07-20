@@ -70,4 +70,14 @@ struct PedalState {
     var halfSpeed = false
     var delayModel: Int?
     var subdivision: Int?
+    // Inferred loop timing, measured from our own record/play sends. The pedal
+    // reports nothing, so this exists only for pad-initiated loops.
+    var loopLength: Double?
+    var cycleAnchor: Date?
+    var recordStart: Date?
+
+    /// One playback pass, accounting for half-speed doubling the period.
+    var effectiveLength: Double? {
+        loopLength.map { $0 * (halfSpeed ? 2 : 1) }
+    }
 }

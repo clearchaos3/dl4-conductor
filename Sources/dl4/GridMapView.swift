@@ -74,7 +74,6 @@ struct GridMapView: View {
                     }
                 }
             }
-            .aspectRatio(8.0 / 5.2, contentMode: .fit)
             Text("As you face the Midi Fighter · columns pair with pedals A–D · pads light while pressed")
                 .font(.system(size: 9)).foregroundStyle(.secondary)
         }

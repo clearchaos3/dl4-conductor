@@ -305,13 +305,9 @@ struct ContentView: View {
                         }
                     }
                 } else {
-                    LoopLanesView()
-                        .frame(minHeight: geo.size.height * 0.185,
-                               maxHeight: geo.size.height * 0.235)
                     panel("PEDALBOARD") { PedalBoardView() }
-                        .frame(maxHeight: geo.size.height * 0.28)
                     panel("MIDI FIGHTER 64") { GridMapView(activity: model.activity) }
-                        .frame(maxHeight: .infinity, alignment: .top)
+                        .frame(maxHeight: .infinity)
                 }
                 performStrip
             }
@@ -334,12 +330,19 @@ struct ContentView: View {
                 Text(model.conductorLine)
                     .font(.system(size: 13, design: .monospaced))
                     .foregroundStyle(.secondary).lineLimit(1)
+            } else if model.clockStatus != "off" {
+                Text(model.clockStatus)
+                    .font(.system(size: 12, design: .monospaced))
+                    .foregroundStyle(.secondary).lineLimit(1)
             }
             Spacer()
             Toggle("Looper", isOn: Binding(
                 get: { model.looperModeOn },
                 set: { model.setLooperMode($0) }))
                 .toggleStyle(.switch)
+            Toggle("Tempo Lock", isOn: $model.tempoLockEnabled)
+                .toggleStyle(.switch)
+                .help("First pad-recorded loop sets the master BPM and streams clock to all pedals")
             Toggle("Quantize", isOn: $model.quantizeEnabled)
                 .toggleStyle(.switch)
             Button(editMode ? "Perform" : "Edit") { editMode.toggle() }

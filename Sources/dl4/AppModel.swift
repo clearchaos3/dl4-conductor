@@ -69,6 +69,11 @@ final class AppModel: ObservableObject {
     // Sync + retrigger
     @Published var syncExternal = false { didSet { reconfigureClock() } }   // follow Ableton's MIDI clock
     @Published var retriggerEnabled = false { didSet { reconfigureClock() } } // re-fire loops each cycle
+    /// First pad-recorded loop sets the master tempo: derive a BPM from the
+    /// loop's measured length and stream MIDI clock so all four pedals' delays
+    /// groove with it (the EDP "loop defines tempo" trick).
+    @Published var tempoLockEnabled = false { didSet { reconfigureClock() } }
+    private var quantizeClockSends = false
     @Published var loopBars = 4
     @Published var activePedals: Set<Int> = []                              // loops being kept in sync
     @Published var clockStatus = "off"
@@ -318,17 +323,20 @@ final class AppModel: ObservableObject {
 
     /// Decide which clock (external Ableton vs internal) drives the grid, and reflect status.
     private func reconfigureClock() {
-        let need = quantizeEnabled || retriggerEnabled
+        let need = quantizeEnabled || retriggerEnabled || tempoLockEnabled
         if syncExternal {
             quantizeClock?.stop(); quantizeClock = nil
             clockStatus = need ? "waiting for Ableton clock…" : "external (idle)"
         } else if need {
-            if quantizeClock == nil {
-                let c = MidiClock(midi: midi, bpm: bpm, sendsClock: false)
+            let wantsSend = tempoLockEnabled   // tempo lock: pedals must hear the clock
+            if quantizeClock == nil || quantizeClockSends != wantsSend {
+                quantizeClock?.stop()
+                let c = MidiClock(midi: midi, bpm: bpm, sendsClock: wantsSend)
                 c.onPulse = { [weak self] pulse in DispatchQueue.main.async { self?.gridPulse(pulse) } }
                 c.start(); quantizeClock = c
+                quantizeClockSends = wantsSend
             } else { quantizeClock?.bpm = bpm }
-            clockStatus = "internal \(Int(bpm)) BPM"
+            clockStatus = "internal \(Int(bpm)) BPM" + (wantsSend ? " → pedals" : "")
         } else {
             quantizeClock?.stop(); quantizeClock = nil
             DispatchQueue.main.async { [weak self] in self?.flushPending() }
@@ -364,6 +372,16 @@ final class AppModel: ObservableObject {
         }
     }
 
+    /// Pick the musical reading of a loop length: try 1/2/4/8/16 bars of 4/4
+    /// and take the first that lands in a sane tempo band.
+    private func lockTempo(to loopSeconds: Double) {
+        for bars in [1, 2, 4, 8, 16] {
+            let candidate = Double(bars) * 4.0 * 60.0 / loopSeconds
+            if candidate >= 70, candidate < 140 { bpm = candidate.rounded(); return }
+        }
+        bpm = min(max((4.0 * 60.0 / loopSeconds).rounded(), 40), 240)
+    }
+
     private func flushPending() {
         guard !pendingActions.isEmpty else { return }
         let items = pendingActions
@@ -385,9 +403,27 @@ final class AppModel: ObservableObject {
             switch a.kind {
             case .looper:
                 switch a.looper {
-                case .record:  pedalStates[p].loop = .recording; activePedals.insert(p)
+                case .record:
+                    pedalStates[p].loop = .recording; activePedals.insert(p)
+                    pedalStates[p].recordStart = Date()
+                    pedalStates[p].loopLength = nil
+                    pedalStates[p].cycleAnchor = nil
                 case .overdub: pedalStates[p].loop = .overdub;   activePedals.insert(p)
-                case .play, .once: pedalStates[p].loop = .playing; activePedals.insert(p)
+                case .play, .once:
+                    let from = pedalStates[p].loop
+                    if from == .recording, let t0 = pedalStates[p].recordStart {
+                        let len = Date().timeIntervalSince(t0)
+                        if len > 0.1 {
+                            pedalStates[p].loopLength = len
+                            if tempoLockEnabled { lockTempo(to: len) }
+                        }
+                    }
+                    // Play out of record/stop and Once both restart from the
+                    // top; Play while already playing/overdubbing does not.
+                    if a.looper == .once || from != .playing && from != .overdub {
+                        pedalStates[p].cycleAnchor = Date()
+                    }
+                    pedalStates[p].loop = .playing; activePedals.insert(p)
                 case .stop:    pedalStates[p].loop = .stopped;    activePedals.remove(p)
                 case .reverse: pedalStates[p].reverse = true
                     rt.sync { if $0.reverse.indices.contains(p) { $0.reverse[p] = true } }

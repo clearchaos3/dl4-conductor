@@ -225,25 +225,127 @@ struct PedalBoardView: View {
                 HStack(spacing: 12) {
                     ForEach(0..<2, id: \.self) { c in
                         let i = 3 - (r * 2 + c)   // physical position → slot index
-                        PedalView(
-                            letter: Conductor.pedalLetters[i],
-                            present: model.midi.isPresent(i),
-                            loop: model.loopPhase(pedal: i),
-                            conducting: model.isConducting,
-                            bpm: model.bpm,
-                            identifying: identifying.contains(i),
-                            // Right column of the square is the Anniversary silver pair
-                            finish: c == 1 ? .silver : .green
-                        ) {
-                            identifying.insert(i)
-                            model.identify(pedal: i)
-                            DispatchQueue.main.asyncAfter(deadline: .now() + 4.5) {
-                                identifying.remove(i)
+                        VStack(spacing: 5) {
+                            PedalView(
+                                letter: Conductor.pedalLetters[i],
+                                present: model.midi.isPresent(i),
+                                loop: model.loopPhase(pedal: i),
+                                conducting: model.isConducting,
+                                bpm: model.bpm,
+                                identifying: identifying.contains(i),
+                                // Right column of the square is the Anniversary silver pair
+                                finish: c == 1 ? .silver : .green
+                            ) {
+                                identifying.insert(i)
+                                model.identify(pedal: i)
+                                DispatchQueue.main.asyncAfter(deadline: .now() + 4.5) {
+                                    identifying.remove(i)
+                                }
                             }
+                            PedalStatusStrip(pedal: i)
                         }
                     }
                 }
             }
         }
+    }
+}
+
+/// Live status shelf under each pedal render: state word in its color, an
+/// inferred-loop playhead sweeping each cycle, reverse/half badges. This is
+/// the glanceable truth; the render above is the pretty picture.
+struct PedalStatusStrip: View {
+    @EnvironmentObject var model: AppModel
+    let pedal: Int
+
+    var body: some View {
+        let present = model.midi.isPresent(pedal)
+        let st = model.pedalStates.indices.contains(pedal) ? model.pedalStates[pedal] : PedalState()
+        let (word, color) = label(st, present: present)
+        HStack(spacing: 10) {
+            Text(word)
+                .font(.system(size: 15, weight: .heavy))
+                .foregroundStyle(color)
+                .frame(width: 88, alignment: .leading)
+                .lineLimit(1).minimumScaleFactor(0.7)
+            playhead(st, color: color, present: present)
+            if present, st.reverse { chip("REV") }
+            if present, st.halfSpeed { chip("½") }
+        }
+        .padding(.horizontal, 10).padding(.vertical, 6)
+        .background(RoundedRectangle(cornerRadius: 7).fill(Color.white.opacity(0.05)))
+        .overlay(RoundedRectangle(cornerRadius: 7).stroke(color.opacity(0.4), lineWidth: 1))
+    }
+
+    private func label(_ st: PedalState, present: Bool) -> (String, Color) {
+        guard present else { return ("OFFLINE", Color(white: 0.45)) }
+        switch st.loop {
+        case .empty:     return ("EMPTY", Color(white: 0.5))
+        case .recording: return ("REC", Color(red: 1.0, green: 0.28, blue: 0.22))
+        case .overdub:   return ("OVERDUB", Color(red: 1.0, green: 0.62, blue: 0.1))
+        case .playing:   return ("PLAYING", Color(red: 0.3, green: 0.9, blue: 0.45))
+        case .stopped:   return ("STOPPED", Color(white: 0.75))
+        }
+    }
+
+    @ViewBuilder
+    private func playhead(_ st: PedalState, color: Color, present: Bool) -> some View {
+        if present, st.loop == .recording, let t0 = st.recordStart {
+            // Length unknown while recording: show elapsed time counting up.
+            TimelineView(.periodic(from: t0, by: 0.1)) { ctx in
+                HStack(spacing: 8) {
+                    bar(progress: nil, color: color)
+                    Text(String(format: "%.1fs", ctx.date.timeIntervalSince(t0)))
+                        .font(.system(size: 12, weight: .semibold, design: .monospaced))
+                        .foregroundStyle(color)
+                }
+            }
+        } else if present, st.loop == .playing || st.loop == .overdub,
+                  let len = st.effectiveLength, let anchor = st.cycleAnchor {
+            TimelineView(.animation(minimumInterval: 1.0 / 30.0)) { ctx in
+                let phase = ctx.date.timeIntervalSince(anchor)
+                    .truncatingRemainder(dividingBy: len) / len
+                HStack(spacing: 8) {
+                    bar(progress: phase, color: color)
+                    Text(String(format: "%.1fs", st.loopLength ?? 0))
+                        .font(.system(size: 12, weight: .semibold, design: .monospaced))
+                        .foregroundStyle(.secondary)
+                }
+            }
+        } else if present, st.loop == .stopped, let len = st.loopLength {
+            HStack(spacing: 8) {
+                bar(progress: 1, color: color.opacity(0.4))
+                Text(String(format: "%.1fs", len))
+                    .font(.system(size: 12, weight: .semibold, design: .monospaced))
+                    .foregroundStyle(.secondary)
+            }
+        } else {
+            bar(progress: 0, color: color)
+        }
+    }
+
+    /// Track + fill. progress nil = indeterminate dim full track (recording).
+    private func bar(progress: Double?, color: Color) -> some View {
+        GeometryReader { geo in
+            ZStack(alignment: .leading) {
+                Capsule().fill(Color.white.opacity(0.08))
+                if let p = progress {
+                    Capsule().fill(color.opacity(0.85))
+                        .frame(width: max(4, geo.size.width * p))
+                } else {
+                    Capsule().fill(color.opacity(0.3))
+                }
+            }
+        }
+        .frame(height: 8)
+        .frame(maxWidth: .infinity)
+    }
+
+    private func chip(_ label: String) -> some View {
+        Text(label)
+            .font(.system(size: 11, weight: .bold, design: .monospaced))
+            .padding(.horizontal, 7).padding(.vertical, 3)
+            .background(Capsule().fill(Color.teal.opacity(0.25)))
+            .foregroundStyle(.teal)
     }
 }
