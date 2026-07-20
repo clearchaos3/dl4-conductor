@@ -21,64 +21,62 @@ enum MF64Grid {
 }
 
 /// On-screen mirror of the Midi Fighter: an 8x8 map showing what every pad does,
-/// lighting cells live as pads are pressed.
+/// lighting cells live as pads are pressed. Drawn as a single Canvas — one draw
+/// pass per change instead of 64 diffed views, which is what keeps it responsive
+/// under fast pad mashing.
 struct GridMapView: View {
     @EnvironmentObject var model: AppModel
     @ObservedObject var activity: PadActivity
 
-    private func binding(forNote n: UInt8) -> PadBinding? {
-        model.bindings.first { $0.trigger.kind == .note && $0.trigger.data1 == n }
-    }
-
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
-            // Scales with the window — fullscreen gives rig-glanceable cells
-            GeometryReader { geo in
-                let spacing = max(4, geo.size.width * 0.008)
-                let cw = (geo.size.width - spacing * 7) / 8
-                let ch = (geo.size.height - spacing * 7) / 8
-                VStack(spacing: spacing) {
-                    ForEach(0..<8, id: \.self) { row in
-                        HStack(spacing: spacing) {
-                            ForEach(0..<8, id: \.self) { col in
-                                cell(row: row, col: col, w: cw, h: ch)
-                            }
+            Canvas(rendersAsynchronously: false) { context, size in
+                let byNote = Dictionary(
+                    model.bindings.compactMap { b in
+                        b.trigger.kind == .note ? (b.trigger.data1, b) : nil
+                    },
+                    uniquingKeysWith: { a, _ in a })
+                let lit = activity.lit
+                let spacing = max(4, size.width * 0.008)
+                let cw = (size.width - spacing * 7) / 8
+                let ch = (size.height - spacing * 7) / 8
+                let corner = max(5, ch * 0.14)
+
+                for row in 0..<8 {
+                    for col in 0..<8 {
+                        let rect = CGRect(x: CGFloat(col) * (cw + spacing),
+                                          y: CGFloat(row) * (ch + spacing),
+                                          width: cw, height: ch)
+                        let path = Path(roundedRect: rect, cornerRadius: corner)
+                        guard let b = byNote[MF64Grid.note(displayRow: row, col: col)] else {
+                            context.fill(path, with: .color(.white.opacity(0.04)))
+                            continue
                         }
+                        let held = lit.contains(b.trigger)
+                        let color = categoryColor(b.action)
+                        context.fill(path, with: .color(held ? color.opacity(0.95) : color.opacity(0.28)))
+                        context.stroke(path, with: .color(held ? Color.white : color.opacity(0.5)),
+                                       lineWidth: held ? 2 : 0.5)
+
+                        let letter = context.resolve(
+                            Text(pedalLetter(b.pedal))
+                                .font(.system(size: max(8, ch * 0.22), weight: .bold))
+                                .foregroundColor(held ? .white : .secondary))
+                        context.draw(letter, at: CGPoint(x: rect.midX, y: rect.midY - ch * 0.18))
+
+                        let text = shortLabel(b.action)
+                        let fit = min(max(8, ch * 0.26), cw / CGFloat(max(3, text.count)) * 1.55)
+                        let label = context.resolve(
+                            Text(text)
+                                .font(.system(size: fit, weight: .semibold))
+                                .foregroundColor(held ? .white : .primary))
+                        context.draw(label, at: CGPoint(x: rect.midX, y: rect.midY + ch * 0.17))
                     }
                 }
             }
             .aspectRatio(8.0 / 5.2, contentMode: .fit)
             Text("As you face the Midi Fighter · columns pair with pedals A–D · pads light while pressed")
                 .font(.system(size: 9)).foregroundStyle(.secondary)
-        }
-    }
-
-    @ViewBuilder
-    private func cell(row: Int, col: Int, w: CGFloat, h: CGFloat) -> some View {
-        let n = MF64Grid.note(displayRow: row, col: col)
-        let corner = max(5, h * 0.14)
-        if let b = binding(forNote: n) {
-            let held = activity.lit.contains(b.trigger)
-            let color = categoryColor(b.action)
-            VStack(spacing: max(1, h * 0.04)) {
-                Text(pedalLetter(b.pedal))
-                    .font(.system(size: max(8, h * 0.24), weight: .bold))
-                    .foregroundStyle(.secondary)
-                Text(shortLabel(b.action))
-                    .font(.system(size: max(8, h * 0.28), weight: .semibold))
-                    .lineLimit(1).minimumScaleFactor(0.5)
-                    .padding(.horizontal, 2)
-            }
-            .frame(width: w, height: h)
-            .background(RoundedRectangle(cornerRadius: corner)
-                .fill(held ? color.opacity(0.95) : color.opacity(0.28)))
-            .overlay(RoundedRectangle(cornerRadius: corner)
-                .stroke(held ? Color.white : color.opacity(0.5), lineWidth: held ? 2 : 0.5))
-            .help("\(pedalLetter(b.pedal)) — \(b.action.title)")
-        } else {
-            RoundedRectangle(cornerRadius: corner)
-                .fill(Color.white.opacity(0.04))
-                .frame(width: w, height: h)
         }
     }
 

@@ -198,6 +198,7 @@ final class AppModel: ObservableObject {
         for (t, pressed, velocity, sentIDs) in events {
             handleTrigger(t, pressed: pressed, velocity: velocity, alreadySent: sentIDs)
         }
+        refreshLEDs()   // once per burst, not once per event
     }
 
     /// MIDI-out only — no @Published access. State-dependent toggles use the
@@ -270,7 +271,6 @@ final class AppModel: ObservableObject {
                 updateState(b.action, pedal: b.pedal, pressed: pressed)
             }
         }
-        refreshLEDs()
     }
 
     /// State effects that `perform` would have applied, for actions whose MIDI
