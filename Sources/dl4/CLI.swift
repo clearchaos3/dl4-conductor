@@ -212,6 +212,22 @@ enum CLI {
                 print("Everything checks out. All pedals are zeroed and in looper mode.")
             }
 
+        case "snap":
+            try? FileManager.default.contentsOfDirectory(atPath: "/tmp")
+                .filter { $0.hasPrefix("dl4-snap") }
+                .forEach { try? FileManager.default.removeItem(atPath: "/tmp/" + $0) }
+            DistributedNotificationCenter.default().postNotificationName(
+                .init("com.ryanlee.dl4conductor.snap"), object: nil, userInfo: nil,
+                deliverImmediately: true)
+            usleep(900_000)
+            let written = ((try? FileManager.default.contentsOfDirectory(atPath: "/tmp")) ?? [])
+                .filter { $0.hasPrefix("dl4-snap") }.sorted()
+            if written.isEmpty {
+                print("No snapshot appeared. Is the app running?")
+                exit(1)
+            }
+            print(written.map { "/tmp/" + $0 }.joined(separator: "\n"))
+
         case "layout":
             let name = CommandLine.arguments.dropFirst(2).first ?? "function-rows"
             guard let bindings = GridLayouts.make(name) else {

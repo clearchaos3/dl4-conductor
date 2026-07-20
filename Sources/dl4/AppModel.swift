@@ -1,5 +1,6 @@
 import Foundation
 import SwiftUI
+import AppKit
 
 /// Grid for quantized looper triggers — fire on the next beat or the next bar.
 enum QuantizeGrid: String, CaseIterable, Identifiable {
@@ -119,6 +120,23 @@ final class AppModel: ObservableObject {
         midi.onSetupChanged = { [weak self] in
             self?.rescan()
             self?.rescanMidiSources()
+        }
+        // Self-snapshot on request (`dl4 snap`): renders our own window to a
+        // PNG, which needs no Screen Recording permission — used to iterate on
+        // the UI from a headless session.
+        DistributedNotificationCenter.default().addObserver(
+            forName: .init("com.ryanlee.dl4conductor.snap"), object: nil, queue: .main
+        ) { _ in AppModel.snapshotWindows() }
+    }
+
+    private static func snapshotWindows() {
+        for (i, w) in NSApp.windows.enumerated() where w.isVisible {
+            guard let view = w.contentView,
+                  let rep = view.bitmapImageRepForCachingDisplay(in: view.bounds) else { continue }
+            view.cacheDisplay(in: view.bounds, to: rep)
+            if let data = rep.representation(using: .png, properties: [:]) {
+                try? data.write(to: URL(fileURLWithPath: "/tmp/dl4-snap-\(i).png"))
+            }
         }
     }
 

@@ -18,6 +18,8 @@ struct ContentView: View {
     @EnvironmentObject var model: AppModel
     private let accent = Color(red: 0.36, green: 0.75, blue: 0.45)
 
+    @State private var editMode = false
+
     // Grid action composer
     @State private var cPedal = 0           // 0 = A, 1 = B, -1 = Both
     @State private var cCategory: ActionCategory = .looper
@@ -42,6 +44,16 @@ struct ContentView: View {
         }
         .frame(minWidth: 960, minHeight: 720)
         .background(Color(red: 0.043, green: 0.051, blue: 0.047))
+        .onAppear {
+            // Dedicated rig display: claim the whole screen on launch so the
+            // portrait dashboard gets its full 1080x1920.
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                if let w = NSApp.windows.first(where: { $0.isVisible }),
+                   let screen = w.screen ?? NSScreen.main {
+                    w.setFrame(screen.visibleFrame, display: true, animate: false)
+                }
+            }
+        }
     }
 
     private var gridSection: some View {
@@ -278,20 +290,63 @@ struct ContentView: View {
         }
     }
 
+    /// Portrait (rotated 1080x1920) stage dashboard: fixed no-scroll zones in
+    /// glance-priority order — loop lanes, pedal renders, pad map, performance
+    /// strip. Edit mode swaps the middle for the config panels.
     private var portraitLayout: some View {
-        ScrollView(showsIndicators: false) {
-            VStack(alignment: .leading, spacing: 14) {
-                panel("PEDALBOARD") { PedalBoardView() }
-                panel("MIDI FIGHTER 64") { GridMapView(activity: model.activity) }
-                HStack(alignment: .top, spacing: 14) {
-                    panel("CONDUCTOR") { conductorSection }
-                    VStack(spacing: 14) {
-                        panel("GRID CONTROLLER") { gridSection }
-                        panel("LOOPER") { looperSection }
+        GeometryReader { geo in
+            VStack(spacing: 12) {
+                if editMode {
+                    ScrollView(showsIndicators: false) {
+                        VStack(alignment: .leading, spacing: 14) {
+                            panel("CONDUCTOR") { conductorSection }
+                            panel("GRID CONTROLLER") { gridSection }
+                            panel("LOOPER") { looperSection }
+                        }
                     }
+                } else {
+                    LoopLanesView()
+                        .frame(minHeight: geo.size.height * 0.185,
+                               maxHeight: geo.size.height * 0.235)
+                    panel("PEDALBOARD") { PedalBoardView() }
+                        .frame(maxHeight: geo.size.height * 0.28)
+                    panel("MIDI FIGHTER 64") { GridMapView(activity: model.activity) }
+                        .frame(maxHeight: .infinity, alignment: .top)
                 }
+                performStrip
             }
         }
+    }
+
+    /// Always-visible bottom strip in portrait: the numbers and switches that
+    /// matter mid-jam, plus the door into Edit mode.
+    private var performStrip: some View {
+        HStack(spacing: 20) {
+            HStack(alignment: .firstTextBaseline, spacing: 8) {
+                Text("\(Int(model.bpm))")
+                    .font(.system(size: 46, weight: .bold, design: .monospaced))
+                    .foregroundStyle(accent)
+                Text("BPM")
+                    .font(.system(size: 15, weight: .semibold))
+                    .foregroundStyle(.secondary)
+            }
+            if model.isConducting {
+                Text(model.conductorLine)
+                    .font(.system(size: 13, design: .monospaced))
+                    .foregroundStyle(.secondary).lineLimit(1)
+            }
+            Spacer()
+            Toggle("Looper", isOn: Binding(
+                get: { model.looperModeOn },
+                set: { model.setLooperMode($0) }))
+                .toggleStyle(.switch)
+            Toggle("Quantize", isOn: $model.quantizeEnabled)
+                .toggleStyle(.switch)
+            Button(editMode ? "Perform" : "Edit") { editMode.toggle() }
+                .font(.system(size: 14, weight: .semibold))
+        }
+        .font(.system(size: 13))
+        .padding(.horizontal, 6)
     }
 
     /// Slim top bar: wordmark, one presence chip per pedal slot, live bar
