@@ -264,17 +264,23 @@ struct PedalStatusStrip: View {
         let (word, color) = label(st, present: present)
         HStack(spacing: 10) {
             Text(word)
-                .font(.system(size: 15, weight: .heavy))
+                .font(.system(size: 14, weight: .heavy, design: .monospaced))
                 .foregroundStyle(color)
-                .frame(width: 88, alignment: .leading)
+                .shadow(color: color.opacity(0.75), radius: 3)
+                .frame(width: 92, alignment: .leading)
                 .lineLimit(1).minimumScaleFactor(0.7)
             playhead(st, color: color, present: present)
             if present, st.reverse { chip("REV") }
             if present, st.halfSpeed { chip("½") }
         }
-        .padding(.horizontal, 10).padding(.vertical, 6)
-        .background(RoundedRectangle(cornerRadius: 7).fill(Color.white.opacity(0.05)))
-        .overlay(RoundedRectangle(cornerRadius: 7).stroke(color.opacity(0.4), lineWidth: 1))
+        .padding(.horizontal, 10).padding(.vertical, 7)
+        // Inset LCD well: dark glass, hairline rim, light falls from above
+        .background(RoundedRectangle(cornerRadius: 7).fill(Theme.inset))
+        .overlay(
+            RoundedRectangle(cornerRadius: 7)
+                .stroke(LinearGradient(colors: [.black.opacity(0.6), .white.opacity(0.09)],
+                                       startPoint: .top, endPoint: .bottom),
+                        lineWidth: 1))
     }
 
     private func label(_ st: PedalState, present: Bool) -> (String, Color) {

@@ -43,7 +43,7 @@ struct ContentView: View {
             .padding(18)
         }
         .frame(minWidth: 960, minHeight: 720)
-        .background(Color(red: 0.043, green: 0.051, blue: 0.047))
+        .background(Theme.stage)
         .onAppear {
             // Dedicated rig display: claim the whole screen on launch so the
             // portrait dashboard gets its full 1080x1920.
@@ -322,9 +322,10 @@ struct ContentView: View {
                 Text("\(Int(model.bpm))")
                     .font(.system(size: 46, weight: .bold, design: .monospaced))
                     .foregroundStyle(accent)
+                    .shadow(color: accent.opacity(0.55), radius: 9)
                 Text("BPM")
-                    .font(.system(size: 15, weight: .semibold))
-                    .foregroundStyle(.secondary)
+                    .font(.system(size: 13, weight: .bold)).tracking(1.5)
+                    .foregroundStyle(Theme.silkDim)
             }
             if model.isConducting {
                 Text(model.conductorLine)
@@ -346,9 +347,11 @@ struct ContentView: View {
             Toggle("Quantize", isOn: $model.quantizeEnabled)
                 .toggleStyle(.switch)
             Button(editMode ? "Perform" : "Edit") { editMode.toggle() }
-                .font(.system(size: 14, weight: .semibold))
+                .buttonStyle(.silk)
         }
         .font(.system(size: 13))
+        .toggleStyle(.switch)
+        .tint(accent)
         .padding(.horizontal, 6)
     }
 
@@ -364,6 +367,7 @@ struct ContentView: View {
                     HStack(spacing: 4) {
                         Circle().fill(present ? accent : Color(red: 0.75, green: 0.25, blue: 0.22))
                             .frame(width: 7, height: 7)
+                            .shadow(color: (present ? accent : Color.red).opacity(0.8), radius: 3)
                         Text(i < Conductor.pedalLetters.count ? Conductor.pedalLetters[i] : "\(i + 1)")
                             .font(.system(size: 11, weight: .semibold, design: .monospaced))
                             .foregroundStyle(present ? .primary : .secondary)
@@ -378,10 +382,10 @@ struct ContentView: View {
                     .font(.system(size: 11, design: .monospaced)).foregroundStyle(.secondary)
                     .lineLimit(1)
             }
-            Button("Rescan") { model.rescan() }
-            Button("Zero") { model.zeroAll() }.disabled(model.presentPedals == 0)
+            Button("Rescan") { model.rescan() }.buttonStyle(.silk)
+            Button("Zero") { model.zeroAll() }.buttonStyle(.silk).disabled(model.presentPedals == 0)
                 .help("Reset all pedals to a clean baseline: un-bypass, 50% mix, moderate repeats, forward, full speed")
-            Button("Test") { model.testSweep() }.disabled(model.presentPedals == 0)
+            Button("Test") { model.testSweep() }.buttonStyle(.silk).disabled(model.presentPedals == 0)
         }
     }
 
@@ -396,18 +400,17 @@ struct ContentView: View {
         }
     }
 
-    /// Section card: silkscreen-style tracked title over a quiet panel.
+    /// Section card: silkscreen title over a machined-enclosure face.
     private func panel<Content: View>(_ title: String, @ViewBuilder content: () -> Content) -> some View {
         VStack(alignment: .leading, spacing: 10) {
             Text(title)
-                .font(.system(size: 10, weight: .bold)).tracking(2.4)
-                .foregroundStyle(.secondary)
+                .font(.system(size: 10, weight: .bold)).tracking(2.8)
+                .foregroundStyle(Theme.silkDim)
             content()
         }
         .padding(14)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(RoundedRectangle(cornerRadius: 10).fill(Color.white.opacity(0.045)))
-        .overlay(RoundedRectangle(cornerRadius: 10).stroke(Color.white.opacity(0.08), lineWidth: 1))
+        .background(Theme.enclosure())
     }
 
     // MARK: Conductor

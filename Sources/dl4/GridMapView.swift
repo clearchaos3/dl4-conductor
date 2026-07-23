@@ -42,35 +42,56 @@ struct GridMapView: View {
                 let ch = (size.height - spacing * 7) / 8
                 let corner = max(5, ch * 0.14)
 
+                _ = corner
                 for row in 0..<8 {
                     for col in 0..<8 {
                         let rect = CGRect(x: CGFloat(col) * (cw + spacing),
                                           y: CGFloat(row) * (ch + spacing),
                                           width: cw, height: ch)
-                        let path = Path(roundedRect: rect, cornerRadius: corner)
+                        let d = min(cw, ch) * 0.94
+                        let circle = Path(ellipseIn: CGRect(x: rect.midX - d / 2,
+                                                            y: rect.midY - d / 2,
+                                                            width: d, height: d))
                         guard let b = byNote[MF64Grid.note(displayRow: row, col: col)] else {
-                            context.fill(path, with: .color(.white.opacity(0.04)))
+                            // Empty socket: dark well, faint rim
+                            context.fill(circle, with: .color(.black.opacity(0.35)))
+                            context.stroke(circle, with: .color(.white.opacity(0.05)), lineWidth: 1)
                             continue
                         }
                         let held = lit.contains(b.trigger)
                         let color = categoryColor(b.action)
-                        context.fill(path, with: .color(held ? color.opacity(0.95) : color.opacity(0.28)))
-                        context.stroke(path, with: .color(held ? Color.white : color.opacity(0.5)),
-                                       lineWidth: held ? 2 : 0.5)
 
+                        if held {
+                            // LED bloom: glow filter behind a fully lit pad
+                            var glow = context
+                            glow.addFilter(.shadow(color: color.opacity(0.9), radius: d * 0.18))
+                            glow.fill(circle, with: .color(color))
+                            context.stroke(circle, with: .color(.white.opacity(0.9)), lineWidth: 2)
+                        } else {
+                            // Unlit arcade button: dark dome, colored rim,
+                            // faint top highlight like a plastic cap
+                            context.fill(circle, with: .color(.black.opacity(0.32)))
+                            context.fill(circle, with: .color(color.opacity(0.12)))
+                            context.stroke(circle, with: .color(color.opacity(0.55)), lineWidth: 2)
+                            let hl = CGRect(x: rect.midX - d * 0.28, y: rect.midY - d * 0.40,
+                                            width: d * 0.56, height: d * 0.2)
+                            context.fill(Path(ellipseIn: hl), with: .color(.white.opacity(0.045)))
+                        }
+
+                        let ink: Color = held ? .black.opacity(0.82) : color.opacity(0.95)
                         let letter = context.resolve(
                             Text(pedalLetter(b.pedal))
-                                .font(.system(size: max(8, ch * 0.22), weight: .bold))
-                                .foregroundColor(held ? .white : .secondary))
-                        context.draw(letter, at: CGPoint(x: rect.midX, y: rect.midY - ch * 0.18))
+                                .font(.system(size: max(8, d * 0.17), weight: .bold, design: .monospaced))
+                                .foregroundColor(held ? .black.opacity(0.6) : Theme.silkDim))
+                        context.draw(letter, at: CGPoint(x: rect.midX, y: rect.midY - d * 0.17))
 
                         let text = shortLabel(b.action)
-                        let fit = min(max(8, ch * 0.26), cw / CGFloat(max(3, text.count)) * 1.55)
+                        let fit = min(max(8, d * 0.20), d / CGFloat(max(3, text.count)) * 1.5)
                         let label = context.resolve(
                             Text(text)
-                                .font(.system(size: fit, weight: .semibold))
-                                .foregroundColor(held ? .white : .primary))
-                        context.draw(label, at: CGPoint(x: rect.midX, y: rect.midY + ch * 0.17))
+                                .font(.system(size: fit, weight: .heavy))
+                                .foregroundColor(ink))
+                        context.draw(label, at: CGPoint(x: rect.midX, y: rect.midY + d * 0.13))
                     }
                 }
             }
