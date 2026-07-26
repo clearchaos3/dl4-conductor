@@ -481,14 +481,14 @@ final class AppModel: ObservableObject {
         litTriggers = current
     }
 
-    /// One rule: a pad idles dim at its row hue and jumps to the bright
-    /// velocity while its state is active or the pad is held. Armed
-    /// (quantize-queued) pads go magenta, a hue no row uses.
+    /// One rule: a pad idles at its row hue and lights white while its state
+    /// is active or the pad is held. Armed (quantize-queued) pads go violet,
+    /// a hue no row uses.
     private func ledColor(for b: PadBinding) -> UInt8 {
-        if pendingTriggers.contains(b.trigger) { return MF64Palette.armed.bright }
+        if pendingTriggers.contains(b.trigger) { return MF64Palette.armed.idle }
         let st = pedalStates[b.pedal < 0 ? 0 : min(b.pedal, pedalStates.count - 1)]
         let held = activity.lit.contains(b.trigger)
-        let (hue, _) = MF64Palette.hue(for: b.action)
+        let hue = MF64Palette.hue(for: b.action)
         let active: Bool
         switch b.action.kind {
         case .looper:
@@ -509,8 +509,8 @@ final class AppModel: ObservableObject {
         case .subdivision:   active = st.subdivision == b.action.arg
         default:             active = false
         }
-        if active || held { return hue.bright }
-        return hue.dim
+        if active || held { return hue.lit }
+        return hue.idle
     }
 
     /// Execute a pad action. Momentary actions also fire on release.

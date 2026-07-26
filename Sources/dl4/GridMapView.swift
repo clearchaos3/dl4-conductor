@@ -141,6 +141,6 @@ struct GridMapView: View {
     /// Screen color = the calibrated hardware hue for this pad, from the same
     /// table that picks the LED velocities.
     private func categoryColor(_ a: PadAction) -> Color {
-        MF64Palette.hue(for: a).hue.screen
+        MF64Palette.hue(for: a).screen
     }
 }
