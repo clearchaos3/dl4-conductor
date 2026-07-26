@@ -481,34 +481,36 @@ final class AppModel: ObservableObject {
         litTriggers = current
     }
 
+    /// One rule: a pad idles dim at its row hue and jumps to the bright
+    /// velocity while its state is active or the pad is held. Armed
+    /// (quantize-queued) pads go magenta, a hue no row uses.
     private func ledColor(for b: PadBinding) -> UInt8 {
-        if pendingTriggers.contains(b.trigger) { return LEDColor.amber }   // armed, waiting for the grid
+        if pendingTriggers.contains(b.trigger) { return MF64Palette.armed.bright }
         let st = pedalStates[b.pedal < 0 ? 0 : min(b.pedal, pedalStates.count - 1)]
         let held = activity.lit.contains(b.trigger)
+        let (hue, _) = MF64Palette.hue(for: b.action)
+        let active: Bool
         switch b.action.kind {
         case .looper:
             switch b.action.looper {
-            case .record:  return st.loop == .recording ? LEDColor.red : LEDColor.dimRed
-            case .overdub: return st.loop == .overdub ? LEDColor.amber : LEDColor.dim
-            case .play, .once: return st.loop == .playing ? LEDColor.green : LEDColor.dimGreen
-            case .stop:    return st.loop == .stopped ? LEDColor.green : LEDColor.dim
-            case .reverse: return st.reverse ? LEDColor.amber : LEDColor.dim
-            case .forward: return st.reverse ? LEDColor.dim : LEDColor.amber
-            case .half:    return st.halfSpeed ? LEDColor.blue : LEDColor.dim
-            case .full:    return st.halfSpeed ? LEDColor.dim : LEDColor.blue
-            case .undo, .redo: return LEDColor.dim
+            case .record:      active = st.loop == .recording
+            case .overdub:     active = st.loop == .overdub
+            case .play, .once: active = st.loop == .playing
+            case .stop:        active = st.loop == .stopped
+            case .reverse:     active = st.reverse
+            case .forward:     active = !st.reverse && st.loop != .empty
+            case .half:        active = st.halfSpeed
+            case .full:        active = !st.halfSpeed && st.loop != .empty
+            case .undo, .redo: active = false
             }
-        case .delayModel:  return st.delayModel == b.action.arg ? LEDColor.green : LEDColor.dimBlue
-        case .reverbModel: return LEDColor.dimBlue
-        case .subdivision: return st.subdivision == b.action.arg ? LEDColor.green : LEDColor.dimBlue
-        case .preset:      return LEDColor.purple
-        case .tap:         return LEDColor.amber
-        case .squeal, .kill, .fullWet: return held ? LEDColor.red : LEDColor.dimRed
-        case .drop, .build: return LEDColor.purple
-        case .feedbackVel, .mixVel: return LEDColor.blue
-        case .reverseToggle: return st.reverse ? LEDColor.amber : LEDColor.dim
-        case .halfToggle:    return st.halfSpeed ? LEDColor.blue : LEDColor.dim
+        case .reverseToggle: active = st.reverse
+        case .halfToggle:    active = st.halfSpeed
+        case .delayModel:    active = st.delayModel == b.action.arg
+        case .subdivision:   active = st.subdivision == b.action.arg
+        default:             active = false
         }
+        if active || held { return hue.bright }
+        return hue.dim
     }
 
     /// Execute a pad action. Momentary actions also fire on release.

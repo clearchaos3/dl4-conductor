@@ -212,6 +212,27 @@ enum CLI {
                 print("Everything checks out. All pedals are zeroed and in looper mode.")
             }
 
+        case "palette":
+            // Calibration sweep: paint all 64 pads with sequential velocity
+            // values so a photo of the unit maps velocity -> actual color.
+            // Reading order matches the on-screen map: top-left pad = base,
+            // increasing left-to-right, top-to-bottom.
+            let led = ControllerLED()
+            guard led.isPresent else { print("No Midi Fighter found."); exit(1) }
+            let base = Int(argValue("--base") ?? "") ?? 1
+            for row in 0..<8 {
+                for col in 0..<8 {
+                    let v = UInt8(min(base + row * 8 + col, 127))
+                    led.setColor(note: MF64Grid.note(displayRow: row, col: col),
+                                 channel: MF64Grid.channel, velocity: v)
+                    usleep(3_000)
+                }
+            }
+            print("Painted velocities \(base)...\(min(base + 63, 127)) onto the grid.")
+            print("Top-left pad = velocity \(base), left to right, top to bottom, +1 each pad.")
+            print("Don't press any pads (presses repaint LEDs), photograph the unit straight-on,")
+            print("then AirDrop the photo to this Mac. Run `dl4 palette --base 65` for the upper half.")
+
         case "snap":
             try? FileManager.default.contentsOfDirectory(atPath: "/tmp")
                 .filter { $0.hasPrefix("dl4-snap") }

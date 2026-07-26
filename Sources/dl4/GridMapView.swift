@@ -138,23 +138,9 @@ struct GridMapView: View {
         }
     }
 
+    /// Screen color = the calibrated hardware hue for this pad, from the same
+    /// table that picks the LED velocities.
     private func categoryColor(_ a: PadAction) -> Color {
-        switch a.kind {
-        case .looper:
-            switch a.looper {
-            case .record, .overdub: return .red
-            case .play, .once: return .green
-            case .stop: return .gray
-            case .undo, .redo: return .orange
-            case .reverse, .forward, .half, .full: return .teal
-            }
-        case .reverseToggle, .halfToggle: return .teal
-        case .squeal, .kill, .fullWet: return .pink
-        case .drop, .build: return .purple
-        case .tap: return .yellow
-        case .preset: return .indigo
-        case .delayModel, .reverbModel, .subdivision: return .blue
-        case .feedbackVel, .mixVel: return .cyan
-        }
+        MF64Palette.hue(for: a).hue.screen
     }
 }
