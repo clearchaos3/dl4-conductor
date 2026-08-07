@@ -509,7 +509,7 @@ final class AppModel: ObservableObject {
         case .subdivision:   active = st.subdivision == b.action.arg
         default:             active = false
         }
-        if active || held { return hue.lit }
+        if active || held { return MF64Palette.lit }
         return hue.idle
     }
 

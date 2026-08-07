@@ -38,14 +38,17 @@ struct GridMapView: View {
                     uniquingKeysWith: { a, _ in a })
                 let lit = activity.lit
                 let spacing = max(4, size.width * 0.008)
-                let cw = (size.width - spacing * 7) / 8
+                // Extra gutter between the looper deck (cols 0-3) and the
+                // performance deck (cols 4-7) — the same physical split the
+                // MF64 has between its quadrant banks.
+                let gutter = spacing * 3
+                let cw = (size.width - spacing * 7 - gutter) / 8
                 let ch = (size.height - spacing * 7) / 8
-                let corner = max(5, ch * 0.14)
 
-                _ = corner
                 for row in 0..<8 {
                     for col in 0..<8 {
-                        let rect = CGRect(x: CGFloat(col) * (cw + spacing),
+                        let x = CGFloat(col) * (cw + spacing) + (col >= 4 ? gutter : 0)
+                        let rect = CGRect(x: x,
                                           y: CGFloat(row) * (ch + spacing),
                                           width: cw, height: ch)
                         let d = min(cw, ch) * 0.94
